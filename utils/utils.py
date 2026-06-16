@@ -26,7 +26,7 @@ def mod_embed(title: str, color: discord.Color, **fields) -> discord.Embed:
     embed = discord.Embed(title=title, color=color, timestamp=utcnow())
     for name, value in fields.items():
         embed.add_field(name=name.replace("_", " ").title(), value=str(value), inline=False)
-    embed.set_footer(text="ModBot")
+    embed.set_footer(text="Themis")
     return embed
 
 async def log_action(guild: discord.Guild, embed: discord.Embed):

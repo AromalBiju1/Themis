@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 import datetime
 import logging
-from utils.utils import is_mod, log_action, mod_embed
+from utils import is_mod, log_action, mod_embed
 
 log = logging.getLogger("modbot.modcmds")
 
@@ -85,7 +85,10 @@ class ModCmds(commands.Cog):
         """!purge 20 OR !purge 20 @user"""
         if amount < 1 or amount > 500:
             return await ctx.send("❌ Amount must be 1-500.", delete_after=5)
-        check = (lambda m: m.author.id == member.id) if member else None
+        if member:
+            check = lambda m: m.author.id == member.id
+        else:
+            check = lambda m: True
         deleted = await ctx.channel.purge(limit=amount, check=check)
         await ctx.send(f"🗑️ Deleted {len(deleted)} messages.", delete_after=4)
 
