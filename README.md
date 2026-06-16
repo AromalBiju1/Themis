@@ -1,4 +1,4 @@
-# ModBot — Multipurpose Discord Moderation Bot
+# Themis — Multipurpose Discord Moderation Bot
 
 ## Features
 | Cog | What it does |
