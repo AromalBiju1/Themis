@@ -276,8 +276,7 @@ pub async fn unban(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
         Ok(id) => UserId::new(id),
         Err(_) => { msg.reply(&ctx.http, "❌ Provide a valid user ID.").await?; return Ok(()); }
     };
-    let reason = args.rest().trim().to_string();
-    let reason = if reason.is_empty() { "No reason provided".to_string() } else { reason };
+    let _reason = args.rest().trim().to_string();
     let guild_id = match msg.guild_id { Some(g) => g, None => return Ok(()) };
 
     match guild_id.unban(&ctx.http, user_id).await {

@@ -178,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
         | GatewayIntents::GUILD_MEMBERS
         | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT
-        | GatewayIntents::GUILD_BANS
+        | GatewayIntents::GUILD_MODERATION
         | GatewayIntents::GUILD_MESSAGE_REACTIONS;
 
     // Build client

@@ -125,7 +125,7 @@ pub async fn warns(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
         Err(_) => { msg.reply(&ctx.http, "❌ Provide a member mention or ID.").await?; return Ok(()); }
     };
 
-    let (is_mod, mod_log_channel, guild_id) = {
+    let (is_mod, _mod_log_channel, guild_id) = {
         let data = ctx.data.read().await;
         let cfg = &data.get::<BotData>().unwrap().config;
         let is_mod = ctx.cache

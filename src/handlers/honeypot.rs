@@ -8,7 +8,7 @@ static PROCESSING: std::sync::LazyLock<Mutex<HashSet<u64>>> =
 
 /// Called from the top-level EventHandler on every message.
 pub async fn handle_message(ctx: &Context, msg: &Message) {
-    let (honeypot_channel, mod_log_channel, is_immune) = {
+    let (_honeypot_channel, mod_log_channel, is_immune) = {
         let data = ctx.data.read().await;
         let bot_data = data.get::<BotData>().unwrap();
         let cfg = &bot_data.config;
