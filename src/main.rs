@@ -40,7 +40,7 @@ use serenity::{
     },
     prelude::*,
 };
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use tracing::info;
 
 use config::Config;
@@ -159,9 +159,13 @@ async fn main() -> anyhow::Result<()> {
     // Load config from .env / environment
     let cfg = Config::load()?;
 
-    // Open SQLite connection pool
-    let db_url = format!("sqlite:{}", cfg.db_path);
-    let pool = SqlitePool::connect(&db_url).await?;
+    // Open SQLite connection pool — create_if_missing so the file is created on first run
+    let pool = SqlitePool::connect_with(
+        SqliteConnectOptions::new()
+            .filename(&cfg.db_path)
+            .create_if_missing(true),
+    )
+    .await?;
     db::init_db(&pool).await?;
     info!("Database ready at {}", cfg.db_path);
 
