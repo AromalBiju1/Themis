@@ -1,0 +1,45 @@
+[package]
+name    = "themisbot"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "themisbot"
+path = "src/main.rs"
+
+[dependencies]
+# Discord
+serenity = { version = "0.12", features = ["client", "gateway", "model", "framework", "standard_framework", "cache"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP health server
+axum = "0.7"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "bundled"] }
+
+# Env / config
+dotenvy = "0.15"
+
+# Error handling
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Regex (invite link detection)
+regex = "1"
+
+# Thread-safe concurrent hashmap for spam tracking
+dashmap = "5"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+[profile.release]
+opt-level   = 3
+lto         = true
+codegen-units = 1

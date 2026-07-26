@@ -1,0 +1,33 @@
+# Rust build artifacts (huge — never send to Docker)
+target/
+
+# Python bytecode (legacy, not needed for Rust build)
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Python virtualenv
+.venv/
+venv/
+
+# Database files — don't bake secrets into image
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Git
+.git/
+.gitignore
+
+# Editor / OS
+.idea/
+.vscode/
+*.DS_Store
+.directory
+
+# Env files (never include in Docker image)
+.env
+.env.*

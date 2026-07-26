@@ -1,3 +1,8 @@
+# Rust build artifacts
+target/
+# Cargo.lock must be committed for reproducible builds (render uses --locked)
+!Cargo.lock
+
 # Environment variables - NEVER commit this
 .env
 

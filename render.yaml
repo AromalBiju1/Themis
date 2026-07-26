@@ -1,0 +1,56 @@
+services:
+  - type: web                   # "web" because we expose /health — Render requires an HTTP port
+    name: themisbot
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free                  # upgrade to "starter" for a persistent disk
+
+    # Render injects PORT automatically; the bot reads it for the health server
+    # healthCheckPath: /health
+
+    envVars:
+      # ── Required ────────────────────────────────────────────────────────────
+      - key: DISCORD_TOKEN
+        sync: false             # set manually in Render dashboard (never commit!)
+      - key: GUILD_ID
+        sync: false
+      - key: MOD_LOG_CHANNEL_ID
+        sync: false
+
+      # ── Optional — set if you use these features ─────────────────────────
+      - key: HONEYPOT_CHANNEL_ID
+        sync: false
+      - key: IMMUNE_ROLE_IDS     # comma-separated role IDs
+        sync: false
+      - key: MOD_ROLE_IDS        # comma-separated role IDs
+        sync: false
+      - key: AUTOROLE_ID
+        sync: false
+      - key: MUTE_ROLE_ID
+        sync: false
+
+      # ── Antispam defaults (override if needed) ───────────────────────────
+      - key: SPAM_MSG_LIMIT
+        value: "5"
+      - key: SPAM_WINDOW_SECS
+        value: "5"
+      - key: ANTI_INVITE
+        value: "true"
+      - key: RAID_JOIN_LIMIT
+        value: "10"
+      - key: RAID_WINDOW_SECS
+        value: "10"
+
+      # ── Warn escalation thresholds ───────────────────────────────────────
+      - key: WARN_MUTE_AT
+        value: "3"
+      - key: WARN_KICK_AT
+        value: "5"
+      - key: WARN_BAN_AT
+        value: "7"
+
+      # ── Database ─────────────────────────────────────────────────────────
+      # On free plan the disk is ephemeral — warns reset on redeploy.
+      # Attach a Render Disk at /data (starter+ plan) and set DB_PATH=/data/modbot.db
+      - key: DB_PATH
+        value: "modbot.db"
