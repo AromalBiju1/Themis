@@ -207,7 +207,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Build client
     let token = cfg.discord_token.clone();
+    
+    let mut cache_settings = serenity::cache::Settings::default();
+    cache_settings.max_messages = 500; // Cache 500 messages per channel to retrieve deleted message content
+
     let mut client = Client::builder(&token, intents)
+        .cache_settings(cache_settings)
         .event_handler(Handler)
         .framework(framework)
         .await?;
