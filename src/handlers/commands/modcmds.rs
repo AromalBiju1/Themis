@@ -28,7 +28,7 @@ pub async fn ban(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
         msg.reply(&ctx.http, "❌ No permission.").await?;
         return Ok(());
     }
-    let member = match args.single::<UserId>() {
+    let member = match crate::utils::parse_target_from_args(&mut args).map(UserId::new) {
         Ok(id) => {
             let guild_id = match msg.guild_id { Some(g) => g, None => return Ok(()) };
             match guild_id.member(&ctx.http, id).await {
@@ -67,7 +67,7 @@ pub async fn kick(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult
         msg.reply(&ctx.http, "❌ No permission.").await?;
         return Ok(());
     }
-    let member = match args.single::<UserId>() {
+    let member = match crate::utils::parse_target_from_args(&mut args).map(UserId::new) {
         Ok(id) => {
             let guild_id = match msg.guild_id { Some(g) => g, None => return Ok(()) };
             match guild_id.member(&ctx.http, id).await {
@@ -106,7 +106,7 @@ pub async fn softban(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
         msg.reply(&ctx.http, "❌ No permission.").await?;
         return Ok(());
     }
-    let member = match args.single::<UserId>() {
+    let member = match crate::utils::parse_target_from_args(&mut args).map(UserId::new) {
         Ok(id) => {
             let guild_id = match msg.guild_id { Some(g) => g, None => return Ok(()) };
             match guild_id.member(&ctx.http, id).await {
@@ -147,7 +147,7 @@ pub async fn mute(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult
         msg.reply(&ctx.http, "❌ No permission.").await?;
         return Ok(());
     }
-    let member = match args.single::<UserId>() {
+    let member = match crate::utils::parse_target_from_args(&mut args).map(UserId::new) {
         Ok(id) => {
             let guild_id = match msg.guild_id { Some(g) => g, None => return Ok(()) };
             match guild_id.member(&ctx.http, id).await {
@@ -192,7 +192,7 @@ pub async fn unmute(ctx: &Context, msg: &Message, mut args: Args) -> CommandResu
         msg.reply(&ctx.http, "❌ No permission.").await?;
         return Ok(());
     }
-    let member = match args.single::<UserId>() {
+    let member = match crate::utils::parse_target_from_args(&mut args).map(UserId::new) {
         Ok(id) => {
             let guild_id = match msg.guild_id { Some(g) => g, None => return Ok(()) };
             match guild_id.member(&ctx.http, id).await {
@@ -226,7 +226,7 @@ pub async fn purge(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
         Ok(n) if n >= 1 && n <= 500 => n as u8,
         _ => { msg.reply(&ctx.http, "❌ Amount must be 1-500.").await?; return Ok(()); }
     };
-    let filter_uid = args.single::<UserId>().ok();
+    let filter_uid = crate::utils::parse_target_from_args(&mut args).map(UserId::new).ok();
 
     let messages = msg.channel_id
         .messages(&ctx.http, GetMessages::new().limit(amount))
@@ -272,8 +272,8 @@ pub async fn unban(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
         msg.reply(&ctx.http, "❌ No permission.").await?;
         return Ok(());
     }
-    let user_id: UserId = match args.single() {
-        Ok(id) => UserId::new(id),
+    let user_id: UserId = match crate::utils::parse_target_from_args(&mut args).map(UserId::new) {
+        Ok(id) => id,
         Err(_) => { msg.reply(&ctx.http, "❌ Provide a valid user ID.").await?; return Ok(()); }
     };
     let _reason = args.rest().trim().to_string();

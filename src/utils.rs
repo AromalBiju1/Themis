@@ -33,3 +33,27 @@ pub async fn log_action(
         tracing::error!("log_action failed: {e}");
     }
 }
+
+/// Robustly parse a user ID from a raw string or a Discord mention (`<@id>` or `<@!id>`).
+pub fn parse_target(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if let Ok(id) = s.parse::<u64>() {
+        return Some(id);
+    }
+    if s.starts_with("<@") && s.ends_with('>') {
+        let clean = s.trim_start_matches("<@").trim_start_matches('!').trim_end_matches('>');
+        if let Ok(id) = clean.parse::<u64>() {
+            return Some(id);
+        }
+    }
+    None
+}
+
+/// Helper to parse a target ID from command arguments.
+pub fn parse_target_from_args(args: &mut serenity::framework::standard::Args) -> Result<u64, ()> {
+    if let Ok(s) = args.single::<String>() {
+        parse_target(&s).ok_or(())
+    } else {
+        Err(())
+    }
+}

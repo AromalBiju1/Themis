@@ -15,7 +15,7 @@ pub struct WarnCmds;
 #[description = "Warn a member. Auto-escalates at configured thresholds."]
 pub async fn warn(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     // Parse target before any async work
-    let target_id = match args.single::<UserId>() {
+    let target_id = match crate::utils::parse_target_from_args(&mut args).map(UserId::new) {
         Ok(id) => id,
         Err(_) => { msg.reply(&ctx.http, "❌ Provide a member mention or ID.").await?; return Ok(()); }
     };
@@ -120,7 +120,7 @@ async fn escalate(
 #[command]
 #[description = "List warns for a member."]
 pub async fn warns(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    let target_id = match args.single::<UserId>() {
+    let target_id = match crate::utils::parse_target_from_args(&mut args).map(UserId::new) {
         Ok(id) => id,
         Err(_) => { msg.reply(&ctx.http, "❌ Provide a member mention or ID.").await?; return Ok(()); }
     };
@@ -206,7 +206,7 @@ pub async fn unwarn(ctx: &Context, msg: &Message, mut args: Args) -> CommandResu
 #[command]
 #[description = "Clear all warns for a member."]
 pub async fn clearwarns(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    let target_id = match args.single::<UserId>() {
+    let target_id = match crate::utils::parse_target_from_args(&mut args).map(UserId::new) {
         Ok(id) => id,
         Err(_) => { msg.reply(&ctx.http, "❌ Provide a member mention or ID.").await?; return Ok(()); }
     };

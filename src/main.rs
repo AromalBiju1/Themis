@@ -59,6 +59,25 @@ use handlers::{
 #[commands(raidoff)]
 struct Raid;
 
+// ── Help command ──────────────────────────────────────────────────────────────
+use std::collections::HashSet;
+use serenity::framework::standard::{help_commands, macros::help, Args, CommandGroup, CommandResult, HelpOptions};
+
+#[help]
+#[command_not_found_text = "Could not find command: `{}`."]
+#[max_levenshtein_distance(3)]
+async fn my_help(
+    context: &Context,
+    msg: &Message,
+    args: Args,
+    help_options: &'static HelpOptions,
+    groups: &[&'static CommandGroup],
+    owners: HashSet<UserId>,
+) -> CommandResult {
+    let _ = help_commands::with_embeds(context, msg, args, help_options, groups, owners).await;
+    Ok(())
+}
+
 // ── Shared data stored in serenity's TypeMap ─────────────────────────────────
 
 pub struct BotData {
@@ -171,6 +190,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Set up the serenity framework with prefix commands
     let framework = StandardFramework::new()
+        .help(&MY_HELP)
         .group(&MODCMDS_GROUP)
         .group(&WARNCMDS_GROUP)
         .group(&RAID_GROUP);
