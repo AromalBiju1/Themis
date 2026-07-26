@@ -1,10 +1,10 @@
 # ── Stage 1: Build ───────────────────────────────────────────────────────────
 FROM rust:1.95-slim-bookworm AS builder
 
-# Build deps for the bundled SQLite (needs cc/make) and TLS
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
+    libsqlite3-dev \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -27,14 +27,13 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    libsqlite3-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy only the compiled binary
 COPY --from=builder /app/target/release/themisbot ./themisbot
 
-# Render injects PORT automatically; our health server reads it
 EXPOSE 8085
 
 CMD ["./themisbot"]
