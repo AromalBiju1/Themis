@@ -59,7 +59,7 @@ impl Config {
 
             autorole_id:      parse_int("AUTOROLE_ID", 0),
 
-            db_path:          env::var("DB_PATH").unwrap_or_else(|_| "modbot.db".to_string()),
+            db_path:          env::var("DB_PATH").unwrap_or_else(|_| "/data/modbot.db".to_string()),
         })
     }
 

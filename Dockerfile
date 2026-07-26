@@ -30,6 +30,9 @@ RUN apt-get update && apt-get install -y \
     libsqlite3-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# Writable directory for SQLite — /app is read-only (binary layer)
+RUN mkdir -p /data && chmod 777 /data
+
 WORKDIR /app
 
 COPY --from=builder /app/target/release/themisbot ./themisbot
