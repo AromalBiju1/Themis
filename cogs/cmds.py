@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 import datetime
 import logging
-from utils import is_mod, log_action, mod_embed
+from utils.utils import is_mod, log_action, mod_embed
 
 log = logging.getLogger("modbot.modcmds")
 
