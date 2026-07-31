@@ -8,7 +8,7 @@ static PROCESSING: std::sync::LazyLock<Mutex<HashSet<u64>>> =
 
 /// Called from the top-level EventHandler on every message.
 pub async fn handle_message(ctx: &Context, msg: &Message) {
-    let (_honeypot_channel, mod_log_channel, is_immune) = {
+    let (mod_log_channel, is_immune) = {
         let data = ctx.data.read().await;
         let bot_data = data.get::<BotData>().unwrap();
         let cfg = &bot_data.config;
@@ -20,14 +20,9 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
             return;
         }
 
-        // Extract guild/member data while the CacheRef is alive, then drop it
-        let is_immune = ctx.cache
-            .guild(msg.guild_id.unwrap_or_default())
-            .and_then(|g| g.members.get(&msg.author.id).map(|m| cfg.is_immune(m)))
-            .unwrap_or(false);
-
-        (cfg.honeypot_channel, cfg.mod_log_channel, is_immune)
-    }; // ← data guard + any CacheRef dropped here
+        let is_immune = crate::utils::check_user_immune(ctx, msg, cfg).await;
+        (cfg.mod_log_channel, is_immune)
+    };
 
     if msg.guild_id.is_none() {
         return;

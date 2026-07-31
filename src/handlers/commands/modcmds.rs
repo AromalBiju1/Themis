@@ -13,10 +13,7 @@ pub struct ModCmds;
 async fn check_mod(ctx: &Context, msg: &Message) -> bool {
     let data = ctx.data.read().await;
     let cfg = &data.get::<BotData>().unwrap().config;
-    ctx.cache
-        .guild(msg.guild_id.unwrap_or_default())
-        .and_then(|g| g.members.get(&msg.author.id).map(|m| cfg.is_mod(m)))
-        .unwrap_or(false)
+    crate::utils::check_user_mod(ctx, msg, cfg).await
 }
 
 // ── !ban ──────────────────────────────────────────────────────────────────────

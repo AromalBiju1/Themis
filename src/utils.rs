@@ -57,3 +57,60 @@ pub fn parse_target_from_args(args: &mut serenity::framework::standard::Args) ->
         Err(())
     }
 }
+
+/// Robustly check if a message author is immune (cache -> partial member -> HTTP fetch).
+pub async fn check_user_immune(ctx: &Context, msg: &Message, cfg: &crate::config::Config) -> bool {
+    if msg.author.bot {
+        return true;
+    }
+    let guild_id = match msg.guild_id {
+        Some(g) => g,
+        None => return false,
+    };
+
+    // 1. Check cache
+    if let Some(guild) = ctx.cache.guild(guild_id) {
+        if let Some(member) = guild.members.get(&msg.author.id) {
+            return cfg.is_immune(member);
+        }
+    }
+
+    // 2. Check PartialMember attached to message
+    if cfg.is_immune_partial(&msg.author, msg.member.as_deref()) {
+        return true;
+    }
+
+    // 3. Fallback to HTTP fetch
+    if let Ok(member) = guild_id.member(&ctx.http, msg.author.id).await {
+        return cfg.is_immune(&member);
+    }
+
+    false
+}
+
+/// Robustly check if a message author is a moderator (cache -> partial member -> HTTP fetch).
+pub async fn check_user_mod(ctx: &Context, msg: &Message, cfg: &crate::config::Config) -> bool {
+    let guild_id = match msg.guild_id {
+        Some(g) => g,
+        None => return false,
+    };
+
+    // 1. Check cache
+    if let Some(guild) = ctx.cache.guild(guild_id) {
+        if let Some(member) = guild.members.get(&msg.author.id) {
+            return cfg.is_mod(member);
+        }
+    }
+
+    // 2. Check PartialMember attached to message
+    if cfg.is_mod_partial(msg.member.as_deref()) {
+        return true;
+    }
+
+    // 3. Fallback to HTTP fetch
+    if let Ok(member) = guild_id.member(&ctx.http, msg.author.id).await {
+        return cfg.is_mod(&member);
+    }
+
+    false
+}

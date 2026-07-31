@@ -73,11 +73,38 @@ impl Config {
         member.roles.iter().any(|r| self.immune_role_ids.contains(&r.get()))
     }
 
+    pub fn is_immune_partial(&self, author: &User, member: Option<&PartialMember>) -> bool {
+        if author.bot {
+            return true;
+        }
+        if let Some(m) = member {
+            if m.permissions.map(|p| p.administrator()).unwrap_or(false) {
+                return true;
+            }
+            if m.roles.iter().any(|r| self.immune_role_ids.contains(&r.get())) {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn is_mod(&self, member: &Member) -> bool {
         if member.permissions.map(|p| p.administrator()).unwrap_or(false) {
             return true;
         }
         member.roles.iter().any(|r| self.mod_role_ids.contains(&r.get()))
+    }
+
+    pub fn is_mod_partial(&self, member: Option<&PartialMember>) -> bool {
+        if let Some(m) = member {
+            if m.permissions.map(|p| p.administrator()).unwrap_or(false) {
+                return true;
+            }
+            if m.roles.iter().any(|r| self.mod_role_ids.contains(&r.get())) {
+                return true;
+            }
+        }
+        false
     }
 }
 
