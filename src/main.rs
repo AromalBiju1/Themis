@@ -46,9 +46,13 @@ use tracing::info;
 use config::Config;
 use handlers::{
     antispam::{self, RaidState, SpamTracker, RAIDOFF_COMMAND},
-    autorole, honeypot, logging, welcome,
+    autorole, goodbye, honeypot, logging, reaction_roles, welcome,
     commands::{
+        embed::EMBEDCMDS_GROUP,
+        goodbye::GOODBYECMDS_GROUP,
         modcmds::MODCMDS_GROUP,
+        rr::RRCMDS_GROUP,
+        utility::UTILITYCMDS_GROUP,
         warns::WARNCMDS_GROUP,
         welcome::{self as welcome_cmd, WELCOMECMDS_GROUP},
     },
@@ -105,6 +109,14 @@ impl EventHandler for Handler {
         welcome_cmd::handle_interaction(&ctx, interaction).await;
     }
 
+    async fn reaction_add(&self, ctx: Context, reaction: Reaction) {
+        reaction_roles::handle_reaction_add(&ctx, &reaction).await;
+    }
+
+    async fn reaction_remove(&self, ctx: Context, reaction: Reaction) {
+        reaction_roles::handle_reaction_remove(&ctx, &reaction).await;
+    }
+
     async fn message(&self, ctx: Context, msg: Message) {
         honeypot::handle_message(&ctx, &msg).await;
         antispam::handle_message(&ctx, &msg).await;
@@ -125,6 +137,7 @@ impl EventHandler for Handler {
         member_data: Option<Member>,
     ) {
         logging::handle_member_leave(&ctx, guild_id, &user, &member_data).await;
+        goodbye::handle_member_leave(&ctx, guild_id, &user, &member_data).await;
     }
 
     async fn message_update(
@@ -201,6 +214,10 @@ async fn main() -> anyhow::Result<()> {
         .group(&MODCMDS_GROUP)
         .group(&WARNCMDS_GROUP)
         .group(&WELCOMECMDS_GROUP)
+        .group(&GOODBYECMDS_GROUP)
+        .group(&RRCMDS_GROUP)
+        .group(&UTILITYCMDS_GROUP)
+        .group(&EMBEDCMDS_GROUP)
         .group(&RAID_GROUP);
 
     framework.configure(Configuration::new().prefix("$"));
