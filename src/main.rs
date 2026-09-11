@@ -50,6 +50,7 @@ use handlers::{
     commands::{
         modcmds::MODCMDS_GROUP,
         warns::WARNCMDS_GROUP,
+        welcome::{self as welcome_cmd, WELCOMECMDS_GROUP},
     },
 };
 
@@ -95,8 +96,13 @@ struct Handler;
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, _ctx: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, ready: Ready) {
         info!("Logged in as {} (ID: {})", ready.user.name, ready.user.id);
+        welcome_cmd::register_slash_commands(&ctx).await;
+    }
+
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        welcome_cmd::handle_interaction(&ctx, interaction).await;
     }
 
     async fn message(&self, ctx: Context, msg: Message) {
@@ -194,6 +200,7 @@ async fn main() -> anyhow::Result<()> {
         .help(&MY_HELP)
         .group(&MODCMDS_GROUP)
         .group(&WARNCMDS_GROUP)
+        .group(&WELCOMECMDS_GROUP)
         .group(&RAID_GROUP);
 
     framework.configure(Configuration::new().prefix("!"));
