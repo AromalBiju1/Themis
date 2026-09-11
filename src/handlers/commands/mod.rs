@@ -3,3 +3,4 @@ pub mod warns;
 pub mod welcome;
 pub mod rr;
 pub mod utility;
+pub mod embed;
