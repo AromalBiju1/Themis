@@ -203,7 +203,7 @@ async fn main() -> anyhow::Result<()> {
         .group(&WELCOMECMDS_GROUP)
         .group(&RAID_GROUP);
 
-    framework.configure(Configuration::new().prefix("!"));
+    framework.configure(Configuration::new().prefix("$"));
 
     // Build intents
     let intents = GatewayIntents::GUILDS
