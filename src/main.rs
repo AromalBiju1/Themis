@@ -46,7 +46,7 @@ use tracing::info;
 use config::Config;
 use handlers::{
     antispam::{self, RaidState, SpamTracker, RAIDOFF_COMMAND},
-    autorole, honeypot, logging,
+    autorole, honeypot, logging, welcome,
     commands::{
         modcmds::MODCMDS_GROUP,
         warns::WARNCMDS_GROUP,
@@ -108,6 +108,7 @@ impl EventHandler for Handler {
         logging::handle_member_join(&ctx, &member).await;
         autorole::handle_member_join(&ctx, &member).await;
         antispam::handle_member_join(&ctx, &member).await;
+        welcome::handle_member_join(&ctx, &member).await;
     }
 
     async fn guild_member_removal(
