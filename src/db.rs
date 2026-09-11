@@ -1,6 +1,6 @@
 use sqlx::{SqlitePool, Row};
 
-/// Initialise the SQLite database and ensure the warns table exists.
+/// Initialise the SQLite database and ensure the tables exist.
 pub async fn init_db(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS warns (
@@ -14,7 +14,104 @@ pub async fn init_db(pool: &SqlitePool) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS welcome_config (
+            guild_id   INTEGER PRIMARY KEY,
+            channel_id INTEGER NOT NULL,
+            title      TEXT,
+            message    TEXT NOT NULL,
+            image_url  TEXT,
+            enabled    INTEGER NOT NULL DEFAULT 1
+        )"
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct WelcomeConfig {
+    pub guild_id: i64,
+    pub channel_id: i64,
+    pub title: Option<String>,
+    pub message: String,
+    pub image_url: Option<String>,
+    pub enabled: bool,
+}
+
+pub async fn get_welcome_config(pool: &SqlitePool, guild_id: i64) -> anyhow::Result<Option<WelcomeConfig>> {
+    let row = sqlx::query(
+        "SELECT guild_id, channel_id, title, message, image_url, enabled FROM welcome_config WHERE guild_id=?"
+    )
+    .bind(guild_id)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some(r) = row {
+        Ok(Some(WelcomeConfig {
+            guild_id: r.get("guild_id"),
+            channel_id: r.get("channel_id"),
+            title: r.get("title"),
+            message: r.get("message"),
+            image_url: r.get("image_url"),
+            enabled: r.get::<i64, _>("enabled") != 0,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn set_welcome_channel(pool: &SqlitePool, guild_id: i64, channel_id: i64) -> anyhow::Result<()> {
+    let default_msg = "💠 • There is no rules so feel free to say anything .\n💠 • BTW don't say too much cringe things 👀\n\n💠 • If you have any more questions then dm one of our staff, mods, and admins.\n\n• ﾟ. 🌟 ﾟ. 🌟 Please Enjoy your Stay! 🌟 ﾟ. 🌟 ﾟ.";
+    sqlx::query(
+        "INSERT INTO welcome_config (guild_id, channel_id, message, enabled) VALUES (?, ?, ?, 1)
+         ON CONFLICT(guild_id) DO UPDATE SET channel_id=EXCLUDED.channel_id"
+    )
+    .bind(guild_id)
+    .bind(channel_id)
+    .bind(default_msg)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn set_welcome_text(pool: &SqlitePool, guild_id: i64, text: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO welcome_config (guild_id, channel_id, message, enabled) VALUES (?, 0, ?, 1)
+         ON CONFLICT(guild_id) DO UPDATE SET message=EXCLUDED.message"
+    )
+    .bind(guild_id)
+    .bind(text)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn set_welcome_image(pool: &SqlitePool, guild_id: i64, image_url: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO welcome_config (guild_id, channel_id, message, image_url, enabled) VALUES (?, 0, '', ?, 1)
+         ON CONFLICT(guild_id) DO UPDATE SET image_url=EXCLUDED.image_url"
+    )
+    .bind(guild_id)
+    .bind(image_url)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn toggle_welcome(pool: &SqlitePool, guild_id: i64) -> anyhow::Result<bool> {
+    let current = get_welcome_config(pool, guild_id).await?.map(|c| c.enabled).unwrap_or(true);
+    let new_val = if current { 0 } else { 1 };
+    sqlx::query(
+        "UPDATE welcome_config SET enabled=? WHERE guild_id=?"
+    )
+    .bind(new_val)
+    .bind(guild_id)
+    .execute(pool)
+    .await?;
+    Ok(new_val == 1)
 }
 
 pub async fn add_warn(
