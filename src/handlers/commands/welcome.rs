@@ -176,7 +176,7 @@ pub async fn handle_interaction(ctx: &Context, interaction: Interaction) {
                 Ok(Some(c)) => c,
                 _ => {
                     let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new().content("❌ Welcome channel not configured yet.").ephemeral(true)
+                        CreateInteractionResponseMessage::new().content("❌ Welcome settings not configured yet. Use `/welcome set_channel #channel` first.").ephemeral(true)
                     )).await;
                     return;
                 }
@@ -191,6 +191,73 @@ pub async fn handle_interaction(ctx: &Context, interaction: Interaction) {
             let options = &command.data.options;
             if let Some(sub) = options.first() {
                 match sub.name.as_str() {
+                    "set_channel" => {
+                        let ch_id = sub.value.as_channel_id().or_else(|| {
+                            // In Serenity 0.12, suboptions may be inside sub.options or ResolvedOption
+                            None
+                        });
+                        let ch = if let CommandDataOptionValue::SubCommand(ref sub_opts) = sub.value {
+                            sub_opts.iter().find_map(|o| match &o.value {
+                                CommandDataOptionValue::Channel(c) => Some(*c),
+                                _ => None,
+                            })
+                        } else {
+                            ch_id
+                        };
+
+                        if let Some(c) = ch {
+                            let _ = db::set_welcome_channel(&bot_data.db, guild_id.get() as i64, c.get() as i64).await;
+                            let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new().content(format!("✅ Welcome channel set to <#{}>.", c)).ephemeral(true)
+                            )).await;
+                        } else {
+                            let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new().content("❌ Please select a valid channel.").ephemeral(true)
+                            )).await;
+                        }
+                    }
+                    "set_text" => {
+                        let msg_text = if let CommandDataOptionValue::SubCommand(ref sub_opts) = sub.value {
+                            sub_opts.iter().find_map(|o| match &o.value {
+                                CommandDataOptionValue::String(s) => Some(s.as_str()),
+                                _ => None,
+                            })
+                        } else {
+                            None
+                        };
+
+                        if let Some(text) = msg_text {
+                            let _ = db::set_welcome_text(&bot_data.db, guild_id.get() as i64, text).await;
+                            let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new().content("✅ Welcome message text updated.").ephemeral(true)
+                            )).await;
+                        } else {
+                            let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new().content("❌ Please provide welcome message text.").ephemeral(true)
+                            )).await;
+                        }
+                    }
+                    "set_image" => {
+                        let img_url = if let CommandDataOptionValue::SubCommand(ref sub_opts) = sub.value {
+                            sub_opts.iter().find_map(|o| match &o.value {
+                                CommandDataOptionValue::String(s) => Some(s.as_str()),
+                                _ => None,
+                            })
+                        } else {
+                            None
+                        };
+
+                        if let Some(url) = img_url {
+                            let _ = db::set_welcome_image(&bot_data.db, guild_id.get() as i64, url).await;
+                            let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new().content("✅ Welcome banner image updated.").ephemeral(true)
+                            )).await;
+                        } else {
+                            let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new().content("❌ Please provide an image URL.").ephemeral(true)
+                            )).await;
+                        }
+                    }
                     "toggle" => {
                         let enabled = db::toggle_welcome(&bot_data.db, guild_id.get() as i64).await.unwrap_or(false);
                         let status = if enabled { "enabled" } else { "disabled" };
