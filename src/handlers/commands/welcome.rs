@@ -49,7 +49,15 @@ pub async fn welcome(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
             msg.reply(&ctx.http, "✅ Welcome message text updated.").await?;
         }
         "image" | "img" => {
-            let url = args.single::<String>().unwrap_or_default();
+            let url = if let Some(att) = msg.attachments.first() {
+                att.url.clone()
+            } else {
+                args.single::<String>().unwrap_or_default()
+            };
+            if url.is_empty() {
+                msg.reply(&ctx.http, "❌ Please attach an image file or provide an image URL.").await?;
+                return Ok(());
+            }
             db::set_welcome_image(pool, guild_id.get() as i64, &url).await?;
             msg.reply(&ctx.http, "✅ Welcome banner image updated.").await?;
         }
@@ -139,8 +147,9 @@ pub async fn register_slash_commands(ctx: &Context) {
                 .add_sub_option(CreateCommandOption::new(CommandOptionType::String, "message", "Welcome text template").required(true))
         )
         .add_option(
-            CreateCommandOption::new(CommandOptionType::SubCommand, "set_image", "Set the bottom banner image URL")
-                .add_sub_option(CreateCommandOption::new(CommandOptionType::String, "url", "Direct image URL").required(true))
+            CreateCommandOption::new(CommandOptionType::SubCommand, "set_image", "Set the bottom banner image (upload file or URL)")
+                .add_sub_option(CreateCommandOption::new(CommandOptionType::Attachment, "image", "Upload image file directly").required(false))
+                .add_sub_option(CreateCommandOption::new(CommandOptionType::String, "url", "Direct image URL").required(false))
         )
         .add_option(CreateCommandOption::new(CommandOptionType::SubCommand, "toggle", "Toggle welcome messages on/off"))
         .add_option(CreateCommandOption::new(CommandOptionType::SubCommand, "status", "View current welcome settings"));
@@ -238,23 +247,34 @@ pub async fn handle_interaction(ctx: &Context, interaction: Interaction) {
                         }
                     }
                     "set_image" => {
-                        let img_url = if let CommandDataOptionValue::SubCommand(ref sub_opts) = sub.value {
-                            sub_opts.iter().find_map(|o| match &o.value {
-                                CommandDataOptionValue::String(s) => Some(s.as_str()),
-                                _ => None,
-                            })
-                        } else {
-                            None
-                        };
+                        let mut img_url = None;
+                        if let CommandDataOptionValue::SubCommand(ref sub_opts) = sub.value {
+                            for o in sub_opts {
+                                match &o.value {
+                                    CommandDataOptionValue::Attachment(att_id) => {
+                                        if let Some(att) = command.data.resolved.attachments.get(att_id) {
+                                            img_url = Some(att.url.clone());
+                                            break;
+                                        }
+                                    }
+                                    CommandDataOptionValue::String(s) => {
+                                        if img_url.is_none() {
+                                            img_url = Some(s.clone());
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
 
                         if let Some(url) = img_url {
-                            let _ = db::set_welcome_image(&bot_data.db, guild_id.get() as i64, url).await;
+                            let _ = db::set_welcome_image(&bot_data.db, guild_id.get() as i64, &url).await;
                             let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
                                 CreateInteractionResponseMessage::new().content("✅ Welcome banner image updated.").ephemeral(true)
                             )).await;
                         } else {
                             let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
-                                CreateInteractionResponseMessage::new().content("❌ Please provide an image URL.").ephemeral(true)
+                                CreateInteractionResponseMessage::new().content("❌ Please upload an image file or provide an image URL.").ephemeral(true)
                             )).await;
                         }
                     }
