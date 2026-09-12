@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 /*!
 ThemisBot — Rust edition
 ========================
