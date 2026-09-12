@@ -228,12 +228,13 @@ pub async fn set_welcome_channel(pool: &SqlitePool, guild_id: i64, channel_id: i
 }
 
 pub async fn set_welcome_text(pool: &SqlitePool, guild_id: i64, text: &str) -> anyhow::Result<()> {
+    let clean_text = crate::handlers::welcome::sanitize_welcome_text(text);
     sqlx::query(
         "INSERT INTO welcome_config (guild_id, channel_id, message, enabled) VALUES (?, 0, ?, 1)
          ON CONFLICT(guild_id) DO UPDATE SET message=EXCLUDED.message"
     )
     .bind(guild_id)
-    .bind(text)
+    .bind(clean_text)
     .execute(pool)
     .await?;
     Ok(())

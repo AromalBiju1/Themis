@@ -22,6 +22,30 @@ pub async fn handle_member_join(ctx: &Context, member: &Member) {
     send_welcome_embed(ctx, guild_id, &member.user, channel_id, &cfg).await;
 }
 
+pub fn sanitize_welcome_text(input: &str) -> String {
+    let mut s = input.trim();
+    let prefixes = [
+        "/welcome set_text message:",
+        "/welcome set_text message",
+        "/welcome set_text",
+        "set_text message:",
+        "set_text message",
+        "!welcome text",
+        "$welcome text",
+    ];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for prefix in &prefixes {
+            if s.to_lowercase().starts_with(&prefix.to_lowercase()) {
+                s = s[prefix.len()..].trim();
+                changed = true;
+            }
+        }
+    }
+    s.to_string()
+}
+
 pub async fn send_welcome_embed(
     ctx: &Context,
     guild_id: GuildId,
@@ -39,7 +63,8 @@ pub async fn send_welcome_embed(
         .map(|g| g.name.clone())
         .unwrap_or_else(|| "Server".to_string());
 
-    let formatted_msg = cfg.message
+    let clean_text = sanitize_welcome_text(&cfg.message);
+    let formatted_msg = clean_text
         .replace("{user}", &format!("<@{}>", user.id))
         .replace("{server}", &server_name)
         .replace("{member_count}", &member_count.to_string());
@@ -74,5 +99,30 @@ pub async fn send_welcome_embed(
 
     if let Err(e) = channel_id.send_message(&ctx.http, msg).await {
         tracing::error!("welcome: failed to send welcome message: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_welcome_text() {
+        assert_eq!(
+            sanitize_welcome_text("/welcome set_text message: ⚔️ Welcome to Infinity!"),
+            "⚔️ Welcome to Infinity!"
+        );
+        assert_eq!(
+            sanitize_welcome_text("set_text message: Hello!"),
+            "Hello!"
+        );
+        assert_eq!(
+            sanitize_welcome_text("$welcome text Welcome user!"),
+            "Welcome user!"
+        );
+        assert_eq!(
+            sanitize_welcome_text("⚔️ Plain welcome message"),
+            "⚔️ Plain welcome message"
+        );
     }
 }
