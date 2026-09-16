@@ -267,7 +267,11 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(8085);
-    tokio::spawn(start_health_server(port));
+    let pool_clone = pool.clone();
+    let http_clone = client.http.clone();
+    tokio::spawn(async move {
+        start_health_server(port, pool_clone, http_clone).await;
+    });
 
     // Start bot (auto-sharded)
     info!("Starting ThemisBot…");

@@ -2,7 +2,7 @@ use serenity::all::*;
 use axum::{extract::Query, routing::get, Router};
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 use serde::Deserialize;
 use crate::db::{self, YoutubeSub};
 

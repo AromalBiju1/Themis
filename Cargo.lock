@@ -2629,6 +2629,7 @@ dependencies = [
  "dotenvy",
  "regex",
  "reqwest",
+ "serde",
  "serenity",
  "sqlx",
  "tokio",
