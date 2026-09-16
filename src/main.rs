@@ -48,7 +48,7 @@ use tracing::info;
 use config::Config;
 use handlers::{
     antispam::{self, RaidState, SpamTracker, RAIDOFF_COMMAND},
-    autorole, goodbye, honeypot, logging, reaction_roles, welcome,
+    autorole, goodbye, honeypot, logging, reaction_roles, welcome, youtube,
     commands::{
         embed::EMBEDCMDS_GROUP,
         goodbye::GOODBYECMDS_GROUP,
@@ -57,6 +57,7 @@ use handlers::{
         utility::UTILITYCMDS_GROUP,
         warns::WARNCMDS_GROUP,
         welcome::{self as welcome_cmd, WELCOMECMDS_GROUP},
+        youtube::{self as youtube_cmd, YOUTUBECMDS_GROUP},
     },
 };
 
@@ -105,10 +106,12 @@ impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("Logged in as {} (ID: {})", ready.user.name, ready.user.id);
         welcome_cmd::register_slash_commands(&ctx).await;
+        youtube_cmd::register_slash_commands(&ctx).await;
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        welcome_cmd::handle_interaction(&ctx, interaction).await;
+        welcome_cmd::handle_interaction(&ctx, interaction.clone()).await;
+        youtube_cmd::handle_interaction(&ctx, interaction).await;
     }
 
     async fn reaction_add(&self, ctx: Context, reaction: Reaction) {
@@ -171,16 +174,19 @@ impl EventHandler for Handler {
     }
 }
 
-// ── Health server ─────────────────────────────────────────────────────────────
+// ── Health & Webhook server ──────────────────────────────────────────────────
 
 async fn health_handler() -> &'static str {
     "OK"
 }
 
-async fn start_health_server(port: u16) {
-    let app = Router::new().route("/health", get(health_handler));
+async fn start_health_server(port: u16, pool: SqlitePool, http: Arc<Http>) {
+    let app = Router::new()
+        .route("/health", get(health_handler))
+        .merge(youtube::youtube_webhooks_router(pool, http));
+
     let addr = format!("0.0.0.0:{port}");
-    info!("Health server on :{port}");
+    info!("Health & Webhook server on :{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
@@ -220,6 +226,7 @@ async fn main() -> anyhow::Result<()> {
         .group(&RRCMDS_GROUP)
         .group(&UTILITYCMDS_GROUP)
         .group(&EMBEDCMDS_GROUP)
+        .group(&YOUTUBECMDS_GROUP)
         .group(&RAID_GROUP);
 
     framework.configure(Configuration::new().prefix("$"));
@@ -247,12 +254,15 @@ async fn main() -> anyhow::Result<()> {
     // Insert shared data into TypeMap
     {
         let mut data = client.data.write().await;
-        data.insert::<BotData>(BotData { config: cfg, db: pool });
+        data.insert::<BotData>(BotData { config: cfg, db: pool.clone() });
         data.insert::<SpamTracker>(SpamTracker(Arc::new(DashMap::new())));
         data.insert::<RaidState>(RaidState(Arc::new(Mutex::new((VecDeque::new(), false)))));
     }
 
-    // Spawn health server
+    // Spawn background YouTube poller
+    youtube::start_youtube_poller(pool.clone(), client.http.clone());
+
+    // Spawn HTTP health & WebSub webhook server if PORT is defined (e.g., on Render)
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|v| v.parse().ok())

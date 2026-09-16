@@ -54,6 +54,21 @@ pub async fn init_db(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS youtube_subscriptions (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id           INTEGER NOT NULL,
+            youtube_channel_id TEXT NOT NULL,
+            discord_channel_id INTEGER NOT NULL,
+            ping_role_id       INTEGER,
+            last_video_id      TEXT,
+            etag               TEXT,
+            UNIQUE(guild_id, youtube_channel_id)
+        )"
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
 
@@ -335,6 +350,124 @@ pub async fn clear_warns(pool: &SqlitePool, guild_id: i64, user_id: i64) -> anyh
         .bind(user_id)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+// ── YouTube Subscriptions ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct YoutubeSub {
+    pub id:                 i64,
+    pub guild_id:           i64,
+    pub youtube_channel_id: String,
+    pub discord_channel_id: i64,
+    pub ping_role_id:       Option<i64>,
+    pub last_video_id:      Option<String>,
+    pub etag:               Option<String>,
+}
+
+pub async fn add_youtube_sub(
+    pool: &SqlitePool,
+    guild_id: i64,
+    youtube_channel_id: &str,
+    discord_channel_id: i64,
+    ping_role_id: Option<i64>,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO youtube_subscriptions (guild_id, youtube_channel_id, discord_channel_id, ping_role_id)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(guild_id, youtube_channel_id) DO UPDATE SET
+             discord_channel_id = EXCLUDED.discord_channel_id,
+             ping_role_id = EXCLUDED.ping_role_id"
+    )
+    .bind(guild_id)
+    .bind(youtube_channel_id)
+    .bind(discord_channel_id)
+    .bind(ping_role_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn remove_youtube_sub(
+    pool: &SqlitePool,
+    guild_id: i64,
+    youtube_channel_id: &str,
+) -> anyhow::Result<bool> {
+    let res = sqlx::query(
+        "DELETE FROM youtube_subscriptions WHERE guild_id=? AND youtube_channel_id=?"
+    )
+    .bind(guild_id)
+    .bind(youtube_channel_id)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+pub async fn list_youtube_subs(
+    pool: &SqlitePool,
+    guild_id: i64,
+) -> anyhow::Result<Vec<YoutubeSub>> {
+    let rows = sqlx::query(
+        "SELECT id, guild_id, youtube_channel_id, discord_channel_id, ping_role_id, last_video_id, etag
+         FROM youtube_subscriptions WHERE guild_id=?"
+    )
+    .bind(guild_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|r| YoutubeSub {
+            id:                 r.get("id"),
+            guild_id:           r.get("guild_id"),
+            youtube_channel_id: r.get("youtube_channel_id"),
+            discord_channel_id: r.get("discord_channel_id"),
+            ping_role_id:       r.get("ping_role_id"),
+            last_video_id:      r.get("last_video_id"),
+            etag:               r.get("etag"),
+        })
+        .collect())
+}
+
+pub async fn get_all_youtube_subs(
+    pool: &SqlitePool,
+) -> anyhow::Result<Vec<YoutubeSub>> {
+    let rows = sqlx::query(
+        "SELECT id, guild_id, youtube_channel_id, discord_channel_id, ping_role_id, last_video_id, etag
+         FROM youtube_subscriptions"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|r| YoutubeSub {
+            id:                 r.get("id"),
+            guild_id:           r.get("guild_id"),
+            youtube_channel_id: r.get("youtube_channel_id"),
+            discord_channel_id: r.get("discord_channel_id"),
+            ping_role_id:       r.get("ping_role_id"),
+            last_video_id:      r.get("last_video_id"),
+            etag:               r.get("etag"),
+        })
+        .collect())
+}
+
+pub async fn update_youtube_sub_last_video(
+    pool: &SqlitePool,
+    id: i64,
+    last_video_id: &str,
+    etag: Option<&str>,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE youtube_subscriptions SET last_video_id=?, etag=? WHERE id=?"
+    )
+    .bind(last_video_id)
+    .bind(etag)
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
