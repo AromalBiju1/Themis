@@ -97,27 +97,6 @@ pub async fn youtube(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
     Ok(())
 }
 
-/// Register slash commands in Discord API
-pub async fn register_slash_commands(ctx: &Context) {
-    let yt_cmd = CreateCommand::new("youtube")
-        .description("Configure YouTube upload notifications")
-        .add_option(
-            CreateCommandOption::new(CommandOptionType::SubCommand, "add", "Subscribe to a YouTube channel")
-                .add_sub_option(CreateCommandOption::new(CommandOptionType::String, "youtube_channel_id", "YouTube Channel ID (e.g. UC...)").required(true))
-                .add_sub_option(CreateCommandOption::new(CommandOptionType::Channel, "discord_channel", "Discord channel to post videos in").required(true))
-                .add_sub_option(CreateCommandOption::new(CommandOptionType::Role, "ping_role", "Optional role to mention").required(false))
-        )
-        .add_option(
-            CreateCommandOption::new(CommandOptionType::SubCommand, "remove", "Unsubscribe from a YouTube channel")
-                .add_sub_option(CreateCommandOption::new(CommandOptionType::String, "youtube_channel_id", "YouTube Channel ID").required(true))
-        )
-        .add_option(CreateCommandOption::new(CommandOptionType::SubCommand, "list", "List active YouTube subscriptions"));
-
-    if let Err(e) = Command::set_global_commands(&ctx.http, vec![yt_cmd]).await {
-        tracing::error!("Failed to register YouTube slash command: {e}");
-    }
-}
-
 /// Handle Slash Command Interactions
 pub async fn handle_interaction(ctx: &Context, interaction: Interaction) {
     let command = match interaction.as_command() {

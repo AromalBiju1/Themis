@@ -25,21 +25,22 @@ pub async fn welcome(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
         None => return Ok(()),
     };
 
-    let sub = args.single::<String>().unwrap_or_default().to_lowercase();
+    let mut sub = args.single::<String>().unwrap_or_default().to_lowercase();
+    if sub == "set" {
+        sub = args.single::<String>().unwrap_or_default().to_lowercase();
+    }
     let pool = &bot_data.db;
 
     match sub.as_str() {
-        "channel" | "ch" => {
-            let target_ch = msg.channel_id;
-            let ch_id = if let Ok(parsed) = args.single::<ChannelId>() {
-                parsed
+        "channel" | "ch" | "set_channel" | "setchannel" => {
+            if let Some(ch_id) = crate::utils::parse_channel_from_args(ctx, guild_id, &mut args) {
+                db::set_welcome_channel(pool, guild_id.get() as i64, ch_id.get() as i64).await?;
+                msg.reply(&ctx.http, format!("✅ Welcome channel set to <#{}>.", ch_id)).await?;
             } else {
-                target_ch
-            };
-            db::set_welcome_channel(pool, guild_id.get() as i64, ch_id.get() as i64).await?;
-            msg.reply(&ctx.http, format!("✅ Welcome channel set to <#{}>.", ch_id)).await?;
+                msg.reply(&ctx.http, "❌ Please specify a valid channel (e.g. `$welcome channel #welcome-channel` or `$welcome channel 123456789`).").await?;
+            }
         }
-        "text" | "msg" => {
+        "text" | "msg" | "set_text" | "settext" => {
             let text = args.rest().trim();
             if text.is_empty() {
                 msg.reply(&ctx.http, "❌ Please provide welcome text.").await?;
@@ -48,7 +49,7 @@ pub async fn welcome(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
             db::set_welcome_text(pool, guild_id.get() as i64, text).await?;
             msg.reply(&ctx.http, "✅ Welcome message text updated.").await?;
         }
-        "image" | "img" => {
+        "image" | "img" | "set_image" | "setimage" => {
             let url = if let Some(att) = msg.attachments.first() {
                 att.url.clone()
             } else {
@@ -132,36 +133,6 @@ pub async fn welcometest(ctx: &Context, msg: &Message) -> CommandResult {
     send_welcome_embed(ctx, guild_id, &msg.author, target_ch, &welcome_cfg).await;
     msg.reply(&ctx.http, format!("✅ Sent test welcome message to <#{}>.", target_ch)).await?;
     Ok(())
-}
-
-/// Register slash commands in Discord API
-pub async fn register_slash_commands(ctx: &Context) {
-    let welcome_cmd = CreateCommand::new("welcome")
-        .description("Configure welcome messages")
-        .add_option(
-            CreateCommandOption::new(CommandOptionType::SubCommand, "set_channel", "Set the welcome channel")
-                .add_sub_option(CreateCommandOption::new(CommandOptionType::Channel, "channel", "Select welcome channel").required(true))
-        )
-        .add_option(
-            CreateCommandOption::new(CommandOptionType::SubCommand, "set_text", "Set the welcome message text")
-                .add_sub_option(CreateCommandOption::new(CommandOptionType::String, "message", "Welcome text template").required(true))
-        )
-        .add_option(
-            CreateCommandOption::new(CommandOptionType::SubCommand, "set_image", "Set the bottom banner image (upload file or URL)")
-                .add_sub_option(CreateCommandOption::new(CommandOptionType::Attachment, "image", "Upload image file directly").required(false))
-                .add_sub_option(CreateCommandOption::new(CommandOptionType::String, "url", "Direct image URL").required(false))
-        )
-        .add_option(CreateCommandOption::new(CommandOptionType::SubCommand, "toggle", "Toggle welcome messages on/off"))
-        .add_option(CreateCommandOption::new(CommandOptionType::SubCommand, "status", "View current welcome settings"));
-
-    let test_cmd = CreateCommand::new("welcometest")
-        .description("Send a test welcome message in the designated channel");
-
-    if let Err(e) = Command::set_global_commands(&ctx.http, vec![welcome_cmd, test_cmd]).await {
-        tracing::error!("Failed to register slash commands: {e}");
-    } else {
-        tracing::info!("Registered slash commands: /welcome, /welcometest");
-    }
 }
 
 /// Handle Slash Command Interactions

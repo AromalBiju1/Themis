@@ -25,16 +25,22 @@ pub async fn goodbye(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
         None => return Ok(()),
     };
 
-    let sub = args.single::<String>().unwrap_or_default().to_lowercase();
+    let mut sub = args.single::<String>().unwrap_or_default().to_lowercase();
+    if sub == "set" {
+        sub = args.single::<String>().unwrap_or_default().to_lowercase();
+    }
     let pool = &bot_data.db;
 
     match sub.as_str() {
-        "channel" | "ch" => {
-            let target_ch = args.single::<ChannelId>().unwrap_or(msg.channel_id);
-            db::set_goodbye_channel(pool, guild_id.get() as i64, target_ch.get() as i64).await?;
-            msg.reply(&ctx.http, format!("✅ Goodbye channel set to <#{}>.", target_ch)).await?;
+        "channel" | "ch" | "set_channel" | "setchannel" => {
+            if let Some(target_ch) = crate::utils::parse_channel_from_args(ctx, guild_id, &mut args) {
+                db::set_goodbye_channel(pool, guild_id.get() as i64, target_ch.get() as i64).await?;
+                msg.reply(&ctx.http, format!("✅ Goodbye channel set to <#{}>.", target_ch)).await?;
+            } else {
+                msg.reply(&ctx.http, "❌ Please specify a valid channel (e.g. `$goodbye channel #goodbye-channel` or `$goodbye channel 123456789`).").await?;
+            }
         }
-        "text" | "msg" => {
+        "text" | "msg" | "set_text" | "settext" => {
             let text = args.rest().trim();
             if text.is_empty() {
                 msg.reply(&ctx.http, "❌ Please provide goodbye text.").await?;

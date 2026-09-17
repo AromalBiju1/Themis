@@ -105,8 +105,7 @@ struct Handler;
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("Logged in as {} (ID: {})", ready.user.name, ready.user.id);
-        welcome_cmd::register_slash_commands(&ctx).await;
-        youtube_cmd::register_slash_commands(&ctx).await;
+        handlers::commands::register_all_slash_commands(&ctx).await;
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {

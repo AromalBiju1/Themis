@@ -58,6 +58,30 @@ pub fn parse_target_from_args(args: &mut serenity::framework::standard::Args) ->
     }
 }
 
+/// Robustly parse a channel ID from command arguments.
+/// Supports <#channel_id>, raw numeric channel ID, or matching channel name in guild.
+pub fn parse_channel_from_args(
+    ctx: &Context,
+    guild_id: GuildId,
+    args: &mut serenity::framework::standard::Args,
+) -> Option<ChannelId> {
+    if let Ok(ch) = args.single::<ChannelId>() {
+        return Some(ch);
+    }
+    if let Ok(raw) = args.single::<String>() {
+        let trimmed = raw.trim_start_matches('<').trim_start_matches('#').trim_end_matches('>');
+        if let Ok(id) = trimmed.parse::<u64>() {
+            return Some(ChannelId::new(id));
+        }
+        if let Some(guild) = ctx.cache.guild(guild_id) {
+            if let Some(ch) = guild.channels.values().find(|c| c.name.eq_ignore_ascii_case(trimmed)) {
+                return Some(ch.id);
+            }
+        }
+    }
+    None
+}
+
 /// Robustly check if a message author is immune (cache -> partial member -> HTTP fetch).
 pub async fn check_user_immune(ctx: &Context, msg: &Message, cfg: &crate::config::Config) -> bool {
     if msg.author.bot {
