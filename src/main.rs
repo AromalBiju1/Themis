@@ -213,6 +213,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
     db::init_db(&pool).await?;
+    db::auto_seed_welcome_config(&pool, cfg.guild_id).await?;
     info!("Database ready at {}", cfg.db_path);
 
     // Set up the serenity framework with prefix commands

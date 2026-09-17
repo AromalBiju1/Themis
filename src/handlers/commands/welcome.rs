@@ -33,7 +33,7 @@ pub async fn welcome(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
 
     match sub.as_str() {
         "channel" | "ch" | "set_channel" | "setchannel" => {
-            if let Some(ch_id) = crate::utils::parse_channel_from_args(ctx, guild_id, &mut args) {
+            if let Some(ch_id) = crate::utils::parse_channel_from_args(ctx, guild_id, &mut args).await {
                 db::set_welcome_channel(pool, guild_id.get() as i64, ch_id.get() as i64).await?;
                 msg.reply(&ctx.http, format!("✅ Welcome channel set to <#{}>.", ch_id)).await?;
             } else {

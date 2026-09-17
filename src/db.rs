@@ -267,6 +267,52 @@ pub async fn set_welcome_image(pool: &SqlitePool, guild_id: i64, image_url: &str
     Ok(())
 }
 
+pub async fn auto_seed_welcome_config(pool: &SqlitePool, guild_id: u64) -> anyhow::Result<()> {
+    if guild_id == 0 {
+        return Ok(());
+    }
+
+    let channel_env = std::env::var("WELCOME_CHANNEL_ID")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+    let text_env = std::env::var("WELCOME_TEXT").ok();
+    let img_env = std::env::var("WELCOME_IMAGE").ok();
+
+    if channel_env <= 0 && text_env.is_none() && img_env.is_none() {
+        return Ok(());
+    }
+
+    let existing = get_welcome_config(pool, guild_id as i64).await?;
+    if let Some(cfg) = existing {
+        if channel_env > 0 && cfg.channel_id <= 0 {
+            set_welcome_channel(pool, guild_id as i64, channel_env).await?;
+        }
+        if let Some(ref text) = text_env {
+            if cfg.message.is_empty() {
+                set_welcome_text(pool, guild_id as i64, text).await?;
+            }
+        }
+        if let Some(ref img) = img_env {
+            if cfg.image_url.is_none() {
+                set_welcome_image(pool, guild_id as i64, img).await?;
+            }
+        }
+    } else {
+        let msg = text_env.unwrap_or_else(|| "💠 • Welcome to the server, {user}! 🌟".to_string());
+        sqlx::query(
+            "INSERT INTO welcome_config (guild_id, channel_id, message, image_url, enabled) VALUES (?, ?, ?, ?, 1)"
+        )
+        .bind(guild_id as i64)
+        .bind(channel_env)
+        .bind(msg)
+        .bind(img_env)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
 pub async fn toggle_welcome(pool: &SqlitePool, guild_id: i64) -> anyhow::Result<bool> {
     let current = get_welcome_config(pool, guild_id).await?.map(|c| c.enabled).unwrap_or(true);
     let new_val = if current { 0 } else { 1 };

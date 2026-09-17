@@ -59,8 +59,8 @@ pub fn parse_target_from_args(args: &mut serenity::framework::standard::Args) ->
 }
 
 /// Robustly parse a channel ID from command arguments.
-/// Supports <#channel_id>, raw numeric channel ID, or matching channel name in guild.
-pub fn parse_channel_from_args(
+/// Supports <#channel_id>, raw numeric channel ID, cache name lookup, or HTTP API channel search.
+pub async fn parse_channel_from_args(
     ctx: &Context,
     guild_id: GuildId,
     args: &mut serenity::framework::standard::Args,
@@ -73,8 +73,24 @@ pub fn parse_channel_from_args(
         if let Ok(id) = trimmed.parse::<u64>() {
             return Some(ChannelId::new(id));
         }
+
+        // Cache lookup
         if let Some(guild) = ctx.cache.guild(guild_id) {
-            if let Some(ch) = guild.channels.values().find(|c| c.name.eq_ignore_ascii_case(trimmed)) {
+            if let Some(ch) = guild.channels.values().find(|c| {
+                c.name.eq_ignore_ascii_case(trimmed) || c.name.eq_ignore_ascii_case(&raw)
+            }) {
+                return Some(ch.id);
+            }
+        }
+
+        // HTTP API fallback (handles emojis/symbols like ✨-welcome)
+        if let Ok(channels) = guild_id.channels(&ctx.http).await {
+            if let Some(ch) = channels.values().find(|c| {
+                c.name.eq_ignore_ascii_case(trimmed)
+                    || c.name.eq_ignore_ascii_case(&raw)
+                    || c.name.contains(trimmed)
+                    || trimmed.contains(&c.name)
+            }) {
                 return Some(ch.id);
             }
         }

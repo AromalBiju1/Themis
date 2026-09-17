@@ -28,6 +28,12 @@ services:
         sync: false
       - key: MUTE_ROLE_ID
         sync: false
+      - key: WELCOME_CHANNEL_ID  # Auto-restores welcome channel on redeploys
+        sync: false
+      - key: WELCOME_TEXT        # Auto-restores welcome text on redeploys
+        sync: false
+      - key: WELCOME_IMAGE       # Auto-restores welcome image banner on redeploys
+        sync: false
 
       # ── Antispam defaults (override if needed) ───────────────────────────
       - key: SPAM_MSG_LIMIT
