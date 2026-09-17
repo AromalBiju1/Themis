@@ -46,6 +46,57 @@ pub fn sanitize_welcome_text(input: &str) -> String {
     s.to_string()
 }
 
+pub async fn auto_link_channels(ctx: &Context, guild_id: GuildId, text: &str) -> String {
+    let channels = if let Ok(ch_map) = guild_id.channels(&ctx.http).await {
+        ch_map.into_values().collect::<Vec<_>>()
+    } else if let Some(guild) = ctx.cache.guild(guild_id) {
+        guild.channels.values().cloned().collect::<Vec<_>>()
+    } else {
+        return text.to_string();
+    };
+
+    let mut result = text.to_string();
+
+    // Sort channels by name length descending so longer channel names match first
+    let mut sorted_channels = channels;
+    sorted_channels.sort_by(|a, b| b.name.len().cmp(&a.name.len()));
+
+    for ch in sorted_channels {
+        if ch.name.len() < 2 {
+            continue;
+        }
+        let ch_mention = format!("<#{}>", ch.id);
+        let name = &ch.name;
+
+        // 1. Match #channel-name
+        let hash_pattern = format!("#{}", name);
+        if result.contains(&hash_pattern) {
+            result = result.replace(&hash_pattern, &ch_mention);
+        }
+
+        // 2. Match raw channel name or prefixed emoji-channel name
+        if result.contains(name) {
+            let lines: Vec<String> = result.lines().map(|line| {
+                if line.contains(&ch_mention) {
+                    return line.to_string();
+                }
+                let mut line_str = line.to_string();
+                let words: Vec<String> = line_str.split_whitespace().map(|s| s.to_string()).collect();
+                for word in &words {
+                    let clean_word = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
+                    if clean_word.eq_ignore_ascii_case(name) {
+                        line_str = line_str.replace(word, &ch_mention);
+                    }
+                }
+                line_str
+            }).collect();
+            result = lines.join("\n");
+        }
+    }
+
+    result
+}
+
 pub async fn send_welcome_embed(
     ctx: &Context,
     guild_id: GuildId,
@@ -64,10 +115,12 @@ pub async fn send_welcome_embed(
         .unwrap_or_else(|| "Server".to_string());
 
     let clean_text = sanitize_welcome_text(&cfg.message);
-    let formatted_msg = clean_text
+    let substituted_msg = clean_text
         .replace("{user}", &format!("<@{}>", user.id))
         .replace("{server}", &server_name)
         .replace("{member_count}", &member_count.to_string());
+
+    let formatted_msg = auto_link_channels(ctx, guild_id, &substituted_msg).await;
 
     let avatar_url = user.face();
 
