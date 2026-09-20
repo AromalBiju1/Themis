@@ -129,23 +129,108 @@ pub fn youtube_webhooks_router(pool: sqlx::SqlitePool, http: Arc<Http>) -> Route
         .with_state((pool, http))
 }
 
+pub async fn resolve_youtube_channel(input: &str) -> anyhow::Result<(String, String, Option<YoutubeVideoInfo>)> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let trimmed = input.trim();
+    
+    // Extract handle or channel ID if full URL passed
+    let clean_input = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        if let Some(idx) = trimmed.find("/channel/") {
+            &trimmed[idx + 9..]
+        } else if let Some(idx) = trimmed.find("/@") {
+            &trimmed[idx + 1..]
+        } else if let Some(idx) = trimmed.find("/c/") {
+            &trimmed[idx + 3..]
+        } else if let Some(idx) = trimmed.find("/user/") {
+            &trimmed[idx + 6..]
+        } else {
+            trimmed
+        }
+    } else {
+        trimmed
+    };
+    let clean_input = clean_input.split('/').next().unwrap_or(clean_input).split('?').next().unwrap_or(clean_input);
+
+    // 1. If clean_input is already a 24-char UC... channel ID
+    if clean_input.starts_with("UC") && clean_input.len() == 24 {
+        let rss_url = format!("https://www.youtube.com/feeds/videos.xml?channel_id={clean_input}");
+        if let Ok(resp) = client.get(&rss_url).send().await {
+            if resp.status().is_success() {
+                if let Ok(xml) = resp.text().await {
+                    if let Some(video) = parse_youtube_atom_feed(&xml) {
+                        return Ok((clean_input.to_string(), video.channel_name.clone(), Some(video)));
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Try handle or channel page fetch
+    let handle_url = if clean_input.starts_with('@') {
+        format!("https://www.youtube.com/{clean_input}")
+    } else {
+        format!("https://www.youtube.com/@{clean_input}")
+    };
+
+    if let Ok(resp) = client.get(&handle_url).send().await {
+        if let Ok(html) = resp.text().await {
+            // Find channel ID from HTML meta tags or RSS link
+            let channel_id = if let Some(idx) = html.find("channel_id=") {
+                let rest = &html[idx + 11..];
+                let end = rest.find('"').or_else(|| rest.find('&')).unwrap_or(24);
+                Some(&rest[..end])
+            } else if let Some(idx) = html.find("itemprop=\"identifier\" content=\"UC") {
+                let rest = &html[idx + 29..];
+                let end = rest.find('"').unwrap_or(24);
+                Some(&rest[..end])
+            } else if let Some(idx) = html.find("\"channelId\":\"UC") {
+                let rest = &html[idx + 13..];
+                let end = rest.find('"').unwrap_or(24);
+                Some(&rest[..end])
+            } else {
+                None
+            };
+
+            if let Some(ch_id) = channel_id {
+                let ch_id = ch_id.trim();
+                if ch_id.starts_with("UC") && ch_id.len() == 24 {
+                    let rss_url = format!("https://www.youtube.com/feeds/videos.xml?channel_id={ch_id}");
+                    if let Ok(rss_resp) = client.get(&rss_url).send().await {
+                        if let Ok(xml) = rss_resp.text().await {
+                            if let Some(video) = parse_youtube_atom_feed(&xml) {
+                                return Ok((ch_id.to_string(), video.channel_name.clone(), Some(video)));
+                            }
+                        }
+                    }
+                    return Ok((ch_id.to_string(), clean_input.to_string(), None));
+                }
+            }
+        }
+    }
+
+    Err(anyhow::anyhow!("Could not resolve YouTube Channel ID for '{input}'. Please check the YouTube handle or channel link."))
+}
+
 // ── Background Tokio Poller (Fallback) ────────────────────────────────────────
 
 pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
     tokio::spawn(async move {
         let client = reqwest::Client::builder()
-            .user_agent("Mozilla/5.0 (ThemisBot YouTube Notifier)")
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .timeout(Duration::from_secs(10))
             .build()
             .unwrap_or_default();
 
         loop {
-            sleep(Duration::from_secs(300)).await; // Poll every 5 minutes
-
             let subs = match db::get_all_youtube_subs(&pool).await {
                 Ok(s) => s,
                 Err(e) => {
                     warn!("youtube_poller: failed to fetch subscriptions: {e}");
+                    sleep(Duration::from_secs(300)).await;
                     continue;
                 }
             };
@@ -188,6 +273,8 @@ pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
                     }
                 }
             }
+
+            sleep(Duration::from_secs(300)).await;
         }
     });
 }

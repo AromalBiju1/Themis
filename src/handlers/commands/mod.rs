@@ -44,7 +44,8 @@ pub async fn register_all_slash_commands(ctx: &Context) {
             CreateCommandOption::new(CommandOptionType::SubCommand, "remove", "Unsubscribe from a YouTube channel")
                 .add_sub_option(CreateCommandOption::new(CommandOptionType::String, "youtube_channel_id", "YouTube Channel ID").required(true))
         )
-        .add_option(CreateCommandOption::new(CommandOptionType::SubCommand, "list", "List active YouTube subscriptions"));
+        .add_option(CreateCommandOption::new(CommandOptionType::SubCommand, "list", "List active YouTube subscriptions"))
+        .add_option(CreateCommandOption::new(CommandOptionType::SubCommand, "test", "Send a test YouTube video notification preview"));
 
     let all_commands = vec![welcome_cmd, test_cmd, yt_cmd];
 
