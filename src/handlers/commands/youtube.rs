@@ -54,16 +54,19 @@ pub async fn youtube(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
 
             db::add_youtube_sub(pool, guild_id.get() as i64, &ch_id, target_ch.get() as i64, ping_role).await?;
 
+            let mut posted_str = String::new();
             if let Some(ref video) = latest_video {
                 if let Ok(subs) = db::list_youtube_subs(pool, guild_id.get() as i64).await {
                     if let Some(sub) = subs.iter().find(|s| s.youtube_channel_id == ch_id) {
+                        let _ = crate::handlers::youtube::send_youtube_notification(&ctx.http, sub, video).await;
                         let _ = db::update_youtube_sub_last_video(pool, sub.id, &video.video_id, None).await;
+                        posted_str = "\n🎥 **Latest video posted automatically!**".to_string();
                     }
                 }
             }
 
             let role_str = ping_role.map(|r| format!(" (pinging <@&{r}>)")).unwrap_or_default();
-            msg.reply(&ctx.http, format!("✅ Subscribed to YouTube channel **{ch_name}** (`{ch_id}`) in <#{target_ch}>{role_str}. Use `$youtube test` to send a test preview!")).await?;
+            msg.reply(&ctx.http, format!("✅ Subscribed to YouTube channel **{ch_name}** (`{ch_id}`) in <#{target_ch}>{role_str}.{posted_str}\nNew uploads will be posted automatically.")).await?;
         }
         "remove" | "del" | "delete" => {
             let input = args.single::<String>().unwrap_or_default();
@@ -186,16 +189,19 @@ pub async fn handle_interaction(ctx: &Context, interaction: Interaction) {
                     match crate::handlers::youtube::resolve_youtube_channel(yt_input).await {
                         Ok((ch_id, ch_name, latest_video)) => {
                             let _ = db::add_youtube_sub(&bot_data.db, guild_id.get() as i64, &ch_id, ch.get() as i64, ping_role).await;
+                            let mut posted_str = String::new();
                             if let Some(ref video) = latest_video {
                                 if let Ok(subs) = db::list_youtube_subs(&bot_data.db, guild_id.get() as i64).await {
                                     if let Some(sub) = subs.iter().find(|s| s.youtube_channel_id == ch_id) {
+                                        let _ = crate::handlers::youtube::send_youtube_notification(&ctx.http, sub, video).await;
                                         let _ = db::update_youtube_sub_last_video(&bot_data.db, sub.id, &video.video_id, None).await;
+                                        posted_str = "\n🎥 **Latest video posted automatically!**".to_string();
                                     }
                                 }
                             }
                             let role_str = ping_role.map(|r| format!(" (pinging <@&{r}>)")).unwrap_or_default();
                             let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
-                                CreateInteractionResponseMessage::new().content(format!("✅ Subscribed to YouTube channel **{ch_name}** (`{ch_id}`) in <#{ch}>{role_str}. Use `/youtube test` to send a test preview!")).ephemeral(true)
+                                CreateInteractionResponseMessage::new().content(format!("✅ Subscribed to YouTube channel **{ch_name}** (`{ch_id}`) in <#{ch}>{role_str}.{posted_str}\nNew uploads will be posted automatically.")).ephemeral(true)
                             )).await;
                         }
                         Err(e) => {

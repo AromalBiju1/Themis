@@ -242,24 +242,37 @@ pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
                 Ok(s) => s,
                 Err(e) => {
                     warn!("youtube_poller: failed to fetch subscriptions: {e}");
-                    sleep(Duration::from_secs(300)).await;
+                    sleep(Duration::from_secs(120)).await;
                     continue;
                 }
             };
 
             for sub in subs {
                 let mut channel_id = sub.youtube_channel_id.clone();
+                let mut last_vid = sub.last_video_id.clone();
 
                 // Auto-migrate old raw handle / URL records in SQLite to true UC channel ID
                 if !(channel_id.starts_with("UC") && channel_id.len() == 24) {
                     info!("youtube_poller: found un-migrated sub id {} ('{}'), auto-resolving...", sub.id, channel_id);
                     match resolve_youtube_channel(&channel_id).await {
-                        Ok((resolved_id, _name, _video)) => {
+                        Ok((resolved_id, _name, latest_vid)) => {
                             info!("youtube_poller: successfully auto-migrated sub id {} ('{}') -> '{}'", sub.id, channel_id, resolved_id);
                             if let Err(e) = db::update_youtube_sub_channel_id(&pool, sub.id, &resolved_id).await {
                                 warn!("youtube_poller: failed to update DB for sub id {}: {e}", sub.id);
                             } else {
-                                channel_id = resolved_id;
+                                channel_id = resolved_id.clone();
+                            }
+
+                            // If this un-migrated subscription hadn't posted its latest video yet, post it now!
+                            if last_vid.is_none() {
+                                if let Some(ref video) = latest_vid {
+                                    info!("youtube_poller: posting initial video '{}' for sub id {}", video.title, sub.id);
+                                    let mut updated_sub = sub.clone();
+                                    updated_sub.youtube_channel_id = channel_id.clone();
+                                    let _ = send_youtube_notification(&http, &updated_sub, video).await;
+                                    let _ = db::update_youtube_sub_last_video(&pool, sub.id, &video.video_id, None).await;
+                                    last_vid = Some(video.video_id.clone());
+                                }
                             }
                         }
                         Err(e) => {
@@ -299,15 +312,17 @@ pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
                 };
 
                 if let Some(video) = parse_youtube_atom_feed(&xml_text) {
-                    if sub.last_video_id.as_deref() != Some(&video.video_id) {
+                    if last_vid.as_deref() != Some(&video.video_id) {
                         info!("youtube_poller: new video found '{}' for {}", video.title, channel_id);
+                        let mut updated_sub = sub.clone();
+                        updated_sub.youtube_channel_id = channel_id.clone();
                         let _ = db::update_youtube_sub_last_video(&pool, sub.id, &video.video_id, new_etag.as_deref()).await;
-                        let _ = send_youtube_notification(&http, &sub, &video).await;
+                        let _ = send_youtube_notification(&http, &updated_sub, &video).await;
                     }
                 }
             }
 
-            sleep(Duration::from_secs(300)).await;
+            sleep(Duration::from_secs(120)).await;
         }
     });
 }
