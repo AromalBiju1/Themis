@@ -517,6 +517,26 @@ pub async fn update_youtube_sub_last_video(
     Ok(())
 }
 
+pub async fn update_youtube_sub_channel_id(
+    pool: &SqlitePool,
+    id: i64,
+    new_channel_id: &str,
+) -> anyhow::Result<()> {
+    let res = sqlx::query(
+        "UPDATE OR IGNORE youtube_subscriptions SET youtube_channel_id=? WHERE id=?"
+    )
+    .bind(new_channel_id)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    if res.rows_affected() == 0 {
+        // If updating failed due to duplicate UNIQUE(guild_id, youtube_channel_id), remove the duplicate old row
+        let _ = sqlx::query("DELETE FROM youtube_subscriptions WHERE id=?").bind(id).execute(pool).await;
+    }
+    Ok(())
+}
+
+
 pub async fn remove_warn(pool: &SqlitePool, warn_id: i64) -> anyhow::Result<()> {
     sqlx::query("DELETE FROM warns WHERE id=?")
         .bind(warn_id)

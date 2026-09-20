@@ -93,7 +93,10 @@ pub async fn youtube(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
 
             let mut count = 0;
             for sub in &subs {
-                if let Ok((_, _, Some(video))) = crate::handlers::youtube::resolve_youtube_channel(&sub.youtube_channel_id).await {
+                if let Ok((resolved_id, _, Some(video))) = crate::handlers::youtube::resolve_youtube_channel(&sub.youtube_channel_id).await {
+                    if !(sub.youtube_channel_id.starts_with("UC") && sub.youtube_channel_id.len() == 24) {
+                        let _ = db::update_youtube_sub_channel_id(pool, sub.id, &resolved_id).await;
+                    }
                     if let Ok(_) = crate::handlers::youtube::send_youtube_notification(&ctx.http, sub, &video).await {
                         count += 1;
                     }
@@ -245,7 +248,10 @@ pub async fn handle_interaction(ctx: &Context, interaction: Interaction) {
 
                 let mut count = 0;
                 for sub in &subs {
-                    if let Ok((_, _, Some(video))) = crate::handlers::youtube::resolve_youtube_channel(&sub.youtube_channel_id).await {
+                    if let Ok((resolved_id, _, Some(video))) = crate::handlers::youtube::resolve_youtube_channel(&sub.youtube_channel_id).await {
+                        if !(sub.youtube_channel_id.starts_with("UC") && sub.youtube_channel_id.len() == 24) {
+                            let _ = db::update_youtube_sub_channel_id(&bot_data.db, sub.id, &resolved_id).await;
+                        }
                         if let Ok(_) = crate::handlers::youtube::send_youtube_notification(&ctx.http, sub, &video).await {
                             count += 1;
                         }

@@ -129,6 +129,30 @@ pub fn youtube_webhooks_router(pool: sqlx::SqlitePool, http: Arc<Http>) -> Route
         .with_state((pool, http))
 }
 
+fn extract_uc_channel_id(html: &str) -> Option<String> {
+    let patterns = [
+        "/channel/UC",
+        "channel_id=UC",
+        "itemprop=\"identifier\" content=\"UC",
+        "\"channelId\":\"UC",
+        "\"externalId\":\"UC",
+        "\"browseId\":\"UC",
+    ];
+
+    for pat in patterns {
+        if let Some(idx) = html.find(pat) {
+            let start = idx + pat.len() - 2;
+            if html.len() >= start + 24 {
+                let candidate = &html[start..start + 24];
+                if candidate.starts_with("UC") && candidate.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+                    return Some(candidate.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 pub async fn resolve_youtube_channel(input: &str) -> anyhow::Result<(String, String, Option<YoutubeVideoInfo>)> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -170,43 +194,31 @@ pub async fn resolve_youtube_channel(input: &str) -> anyhow::Result<(String, Str
     }
 
     // 2. Try handle or channel page fetch
-    let handle_url = if clean_input.starts_with('@') {
-        format!("https://www.youtube.com/{clean_input}")
+    let handle_name = if clean_input.starts_with('@') {
+        clean_input.to_string()
     } else {
-        format!("https://www.youtube.com/@{clean_input}")
+        format!("@{clean_input}")
     };
 
-    if let Ok(resp) = client.get(&handle_url).send().await {
-        if let Ok(html) = resp.text().await {
-            // Find channel ID from HTML meta tags or RSS link
-            let channel_id = if let Some(idx) = html.find("channel_id=") {
-                let rest = &html[idx + 11..];
-                let end = rest.find('"').or_else(|| rest.find('&')).unwrap_or(24);
-                Some(&rest[..end])
-            } else if let Some(idx) = html.find("itemprop=\"identifier\" content=\"UC") {
-                let rest = &html[idx + 29..];
-                let end = rest.find('"').unwrap_or(24);
-                Some(&rest[..end])
-            } else if let Some(idx) = html.find("\"channelId\":\"UC") {
-                let rest = &html[idx + 13..];
-                let end = rest.find('"').unwrap_or(24);
-                Some(&rest[..end])
-            } else {
-                None
-            };
+    let urls_to_try = [
+        format!("https://www.youtube.com/{handle_name}"),
+        format!("https://www.youtube.com/c/{clean_input}"),
+        format!("https://www.youtube.com/user/{clean_input}"),
+    ];
 
-            if let Some(ch_id) = channel_id {
-                let ch_id = ch_id.trim();
-                if ch_id.starts_with("UC") && ch_id.len() == 24 {
+    for page_url in urls_to_try {
+        if let Ok(resp) = client.get(&page_url).send().await {
+            if let Ok(html) = resp.text().await {
+                if let Some(ch_id) = extract_uc_channel_id(&html) {
                     let rss_url = format!("https://www.youtube.com/feeds/videos.xml?channel_id={ch_id}");
                     if let Ok(rss_resp) = client.get(&rss_url).send().await {
                         if let Ok(xml) = rss_resp.text().await {
                             if let Some(video) = parse_youtube_atom_feed(&xml) {
-                                return Ok((ch_id.to_string(), video.channel_name.clone(), Some(video)));
+                                return Ok((ch_id, video.channel_name.clone(), Some(video)));
                             }
                         }
                     }
-                    return Ok((ch_id.to_string(), clean_input.to_string(), None));
+                    return Ok((ch_id, clean_input.to_string(), None));
                 }
             }
         }
@@ -236,9 +248,30 @@ pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
             };
 
             for sub in subs {
+                let mut channel_id = sub.youtube_channel_id.clone();
+
+                // Auto-migrate old raw handle / URL records in SQLite to true UC channel ID
+                if !(channel_id.starts_with("UC") && channel_id.len() == 24) {
+                    info!("youtube_poller: found un-migrated sub id {} ('{}'), auto-resolving...", sub.id, channel_id);
+                    match resolve_youtube_channel(&channel_id).await {
+                        Ok((resolved_id, _name, _video)) => {
+                            info!("youtube_poller: successfully auto-migrated sub id {} ('{}') -> '{}'", sub.id, channel_id, resolved_id);
+                            if let Err(e) = db::update_youtube_sub_channel_id(&pool, sub.id, &resolved_id).await {
+                                warn!("youtube_poller: failed to update DB for sub id {}: {e}", sub.id);
+                            } else {
+                                channel_id = resolved_id;
+                            }
+                        }
+                        Err(e) => {
+                            warn!("youtube_poller: failed to auto-resolve YouTube channel for sub id {} ('{}'): {e}", sub.id, channel_id);
+                            continue;
+                        }
+                    }
+                }
+
                 let url = format!(
                     "https://www.youtube.com/feeds/videos.xml?channel_id={}",
-                    sub.youtube_channel_id
+                    channel_id
                 );
 
                 let mut req = client.get(&url);
@@ -249,7 +282,7 @@ pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
                 let resp = match req.send().await {
                     Ok(r) => r,
                     Err(e) => {
-                        warn!("youtube_poller: request error for {}: {e}", sub.youtube_channel_id);
+                        warn!("youtube_poller: request error for {}: {e}", channel_id);
                         continue;
                     }
                 };
@@ -267,7 +300,7 @@ pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
 
                 if let Some(video) = parse_youtube_atom_feed(&xml_text) {
                     if sub.last_video_id.as_deref() != Some(&video.video_id) {
-                        info!("youtube_poller: new video found '{}' for {}", video.title, sub.youtube_channel_id);
+                        info!("youtube_poller: new video found '{}' for {}", video.title, channel_id);
                         let _ = db::update_youtube_sub_last_video(&pool, sub.id, &video.video_id, new_etag.as_deref()).await;
                         let _ = send_youtube_notification(&http, &sub, &video).await;
                     }
@@ -308,5 +341,17 @@ mod tests {
         assert_eq!(parsed.title, "Awesome New Gameplay & Review!");
         assert_eq!(parsed.channel_name, "Epic Gaming Channel");
         assert_eq!(parsed.channel_id, "UC123456789");
+    }
+
+    #[test]
+    fn test_extract_uc_channel_id() {
+        let html_rss = r#"<link rel="alternate" type="application/rss+xml" href="https://www.youtube.com/feeds/videos.xml?channel_id=UC1234567890123456789012">"#;
+        assert_eq!(extract_uc_channel_id(html_rss), Some("UC1234567890123456789012".to_string()));
+
+        let html_canonical = r#"<link rel="canonical" href="https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv">"#;
+        assert_eq!(extract_uc_channel_id(html_canonical), Some("UCabcdefghijklmnopqrstuv".to_string()));
+
+        let html_meta = r#"<meta itemprop="identifier" content="UC9876543210987654321098">"#;
+        assert_eq!(extract_uc_channel_id(html_meta), Some("UC9876543210987654321098".to_string()));
     }
 }
