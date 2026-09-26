@@ -59,8 +59,14 @@ pub async fn welcome(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
                 msg.reply(&ctx.http, "❌ Please attach an image file or provide an image URL.").await?;
                 return Ok(());
             }
-            db::set_welcome_image(pool, guild_id.get() as i64, &url).await?;
-            msg.reply(&ctx.http, "✅ Welcome banner image updated.").await?;
+            let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).build().unwrap_or_default();
+            let image_bytes = match client.get(&url).send().await {
+                Ok(resp) => resp.bytes().await.ok().map(|b| b.to_vec()),
+                Err(_) => None,
+            };
+
+            db::set_welcome_image(pool, guild_id.get() as i64, &url, image_bytes.as_deref()).await?;
+            msg.reply(&ctx.http, "✅ Welcome banner image updated and permanently cached! (It will no longer expire after invites).").await?;
         }
         "toggle" => {
             let enabled = db::toggle_welcome(pool, guild_id.get() as i64).await?;
@@ -239,9 +245,15 @@ pub async fn handle_interaction(ctx: &Context, interaction: Interaction) {
                         }
 
                         if let Some(url) = img_url {
-                            let _ = db::set_welcome_image(&bot_data.db, guild_id.get() as i64, &url).await;
+                            let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).build().unwrap_or_default();
+                            let image_bytes = match client.get(&url).send().await {
+                                Ok(resp) => resp.bytes().await.ok().map(|b| b.to_vec()),
+                                Err(_) => None,
+                            };
+
+                            let _ = db::set_welcome_image(&bot_data.db, guild_id.get() as i64, &url, image_bytes.as_deref()).await;
                             let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(
-                                CreateInteractionResponseMessage::new().content("✅ Welcome banner image updated.").ephemeral(true)
+                                CreateInteractionResponseMessage::new().content("✅ Welcome banner image updated and permanently cached! (It will no longer expire after invites).").ephemeral(true)
                             )).await;
                         } else {
                             let _ = command.create_response(&ctx.http, CreateInteractionResponse::Message(

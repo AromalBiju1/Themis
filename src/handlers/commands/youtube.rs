@@ -59,6 +59,7 @@ pub async fn youtube(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
                 if let Ok(subs) = db::list_youtube_subs(pool, guild_id.get() as i64).await {
                     if let Some(sub) = subs.iter().find(|s| s.youtube_channel_id == ch_id) {
                         let _ = crate::handlers::youtube::send_youtube_notification(&ctx.http, sub, video).await;
+                        let _ = db::mark_youtube_video_seen(pool, guild_id.get() as i64, &ch_id, &video.video_id).await;
                         let _ = db::update_youtube_sub_last_video(pool, sub.id, &video.video_id, None).await;
                         posted_str = "\n🎥 **Latest video posted automatically!**".to_string();
                     }
@@ -194,6 +195,7 @@ pub async fn handle_interaction(ctx: &Context, interaction: Interaction) {
                                 if let Ok(subs) = db::list_youtube_subs(&bot_data.db, guild_id.get() as i64).await {
                                     if let Some(sub) = subs.iter().find(|s| s.youtube_channel_id == ch_id) {
                                         let _ = crate::handlers::youtube::send_youtube_notification(&ctx.http, sub, video).await;
+                                        let _ = db::mark_youtube_video_seen(&bot_data.db, guild_id.get() as i64, &ch_id, &video.video_id).await;
                                         let _ = db::update_youtube_sub_last_video(&bot_data.db, sub.id, &video.video_id, None).await;
                                         posted_str = "\n🎥 **Latest video posted automatically!**".to_string();
                                     }

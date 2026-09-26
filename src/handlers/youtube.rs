@@ -12,6 +12,7 @@ pub struct YoutubeVideoInfo {
     pub title:        String,
     pub channel_name: String,
     pub channel_id:   String,
+    pub published:    String,
 }
 
 pub fn unescape_xml(s: &str) -> String {
@@ -32,32 +33,51 @@ fn extract_tag_value(xml: &str, tag: &str) -> Option<String> {
     Some(unescape_xml(val.trim()))
 }
 
+pub fn parse_all_youtube_entries(xml: &str) -> Vec<YoutubeVideoInfo> {
+    let mut entries = Vec::new();
+    let mut remaining = xml;
+
+    while let Some(start) = remaining.find("<entry>") {
+        let after_start = &remaining[start + 7..];
+        let end = match after_start.find("</entry>") {
+            Some(e) => e,
+            None => break,
+        };
+        let entry_xml = &after_start[..end];
+
+        let video_id = extract_tag_value(entry_xml, "yt:videoId").or_else(|| {
+            let id = extract_tag_value(entry_xml, "id")?;
+            id.strip_prefix("yt:video:").map(|s| s.to_string())
+        });
+
+        if let Some(vid) = video_id {
+            let title = extract_tag_value(entry_xml, "title")
+                .unwrap_or_else(|| "New YouTube Video".to_string());
+            let channel_name = extract_tag_value(entry_xml, "name")
+                .or_else(|| extract_tag_value(xml, "title"))
+                .unwrap_or_else(|| "YouTube Channel".to_string());
+            let channel_id = extract_tag_value(entry_xml, "yt:channelId")
+                .or_else(|| extract_tag_value(xml, "yt:channelId"))
+                .unwrap_or_default();
+            let published = extract_tag_value(entry_xml, "published").unwrap_or_default();
+
+            entries.push(YoutubeVideoInfo {
+                video_id: vid,
+                title,
+                channel_name,
+                channel_id,
+                published,
+            });
+        }
+
+        remaining = &after_start[end + 8..];
+    }
+
+    entries
+}
+
 pub fn parse_youtube_atom_feed(xml: &str) -> Option<YoutubeVideoInfo> {
-    let entry_start = xml.find("<entry>")?;
-    let entry_xml = &xml[entry_start..];
-
-    let video_id = extract_tag_value(entry_xml, "yt:videoId").or_else(|| {
-        let id = extract_tag_value(entry_xml, "id")?;
-        id.strip_prefix("yt:video:").map(|s| s.to_string())
-    })?;
-
-    let title = extract_tag_value(entry_xml, "title")
-        .unwrap_or_else(|| "New YouTube Video".to_string());
-
-    let channel_name = extract_tag_value(entry_xml, "name")
-        .or_else(|| extract_tag_value(xml, "title"))
-        .unwrap_or_else(|| "YouTube Channel".to_string());
-
-    let channel_id = extract_tag_value(entry_xml, "yt:channelId")
-        .or_else(|| extract_tag_value(xml, "yt:channelId"))
-        .unwrap_or_default();
-
-    Some(YoutubeVideoInfo {
-        video_id,
-        title,
-        channel_name,
-        channel_id,
-    })
+    parse_all_youtube_entries(xml).into_iter().next()
 }
 
 pub async fn send_youtube_notification(
@@ -66,28 +86,20 @@ pub async fn send_youtube_notification(
     video: &YoutubeVideoInfo,
 ) -> anyhow::Result<()> {
     let channel_id = ChannelId::new(sub.discord_channel_id as u64);
-    let video_url = format!("https://youtu.be/{}", video.video_id);
-    let thumbnail_url = format!("https://i.ytimg.com/vi/{}/maxresdefault.jpg", video.video_id);
+    let video_url = format!("https://www.youtube.com/watch?v={}", video.video_id);
 
+    // Send native link without custom embed so Discord embeds the interactive playable YouTube video player
     let content = if let Some(role_id) = sub.ping_role_id {
         if role_id > 0 {
-            format!("<@&{role_id}> 🎥 **New Video Uploaded!**\n{video_url}")
+            format!("<@&{role_id}> 🎥 **{}** uploaded a new video!\n{video_url}", video.channel_name)
         } else {
-            format!("🎥 **New Video Uploaded!**\n{video_url}")
+            format!("🎥 **{}** uploaded a new video!\n{video_url}", video.channel_name)
         }
     } else {
-        format!("🎥 **New Video Uploaded!**\n{video_url}")
+        format!("🎥 **{}** uploaded a new video!\n{video_url}", video.channel_name)
     };
 
-    let embed = CreateEmbed::new()
-        .author(CreateEmbedAuthor::new(&video.channel_name))
-        .title(&video.title)
-        .url(&video_url)
-        .color(Color::from_rgb(255, 0, 0)) // Red YouTube theme
-        .image(thumbnail_url)
-        .footer(CreateEmbedFooter::new("Uploaded to YouTube"));
-
-    let message = CreateMessage::new().content(content).embed(embed);
+    let message = CreateMessage::new().content(content);
     channel_id.send_message(http, message).await?;
     Ok(())
 }
@@ -109,12 +121,16 @@ async fn handle_websub_post(
     body: String,
 ) -> &'static str {
     if let Some(video) = parse_youtube_atom_feed(&body) {
-        if let Ok(subs) = db::get_all_youtube_subs(&pool).await {
-            for sub in subs {
-                if sub.youtube_channel_id == video.channel_id || video.channel_id.is_empty() {
-                    if sub.last_video_id.as_deref() != Some(&video.video_id) {
-                        let _ = db::update_youtube_sub_last_video(&pool, sub.id, &video.video_id, None).await;
-                        let _ = send_youtube_notification(&http, &sub, &video).await;
+        if !video.channel_id.is_empty() {
+            if let Ok(subs) = db::get_all_youtube_subs(&pool).await {
+                for sub in subs {
+                    if sub.youtube_channel_id == video.channel_id {
+                        let already_seen = db::is_youtube_video_seen(&pool, sub.guild_id, &sub.youtube_channel_id, &video.video_id).await.unwrap_or(false);
+                        if !already_seen {
+                            let _ = db::mark_youtube_video_seen(&pool, sub.guild_id, &sub.youtube_channel_id, &video.video_id).await;
+                            let _ = db::update_youtube_sub_last_video(&pool, sub.id, &video.video_id, None).await;
+                            let _ = send_youtube_notification(&http, &sub, &video).await;
+                        }
                     }
                 }
             }
@@ -249,31 +265,15 @@ pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
 
             for sub in subs {
                 let mut channel_id = sub.youtube_channel_id.clone();
-                let mut last_vid = sub.last_video_id.clone();
 
                 // Auto-migrate old raw handle / URL records in SQLite to true UC channel ID
                 if !(channel_id.starts_with("UC") && channel_id.len() == 24) {
                     info!("youtube_poller: found un-migrated sub id {} ('{}'), auto-resolving...", sub.id, channel_id);
                     match resolve_youtube_channel(&channel_id).await {
-                        Ok((resolved_id, _name, latest_vid)) => {
+                        Ok((resolved_id, _name, _)) => {
                             info!("youtube_poller: successfully auto-migrated sub id {} ('{}') -> '{}'", sub.id, channel_id, resolved_id);
-                            if let Err(e) = db::update_youtube_sub_channel_id(&pool, sub.id, &resolved_id).await {
-                                warn!("youtube_poller: failed to update DB for sub id {}: {e}", sub.id);
-                            } else {
-                                channel_id = resolved_id.clone();
-                            }
-
-                            // If this un-migrated subscription hadn't posted its latest video yet, post it now!
-                            if last_vid.is_none() {
-                                if let Some(ref video) = latest_vid {
-                                    info!("youtube_poller: posting initial video '{}' for sub id {}", video.title, sub.id);
-                                    let mut updated_sub = sub.clone();
-                                    updated_sub.youtube_channel_id = channel_id.clone();
-                                    let _ = send_youtube_notification(&http, &updated_sub, video).await;
-                                    let _ = db::update_youtube_sub_last_video(&pool, sub.id, &video.video_id, None).await;
-                                    last_vid = Some(video.video_id.clone());
-                                }
-                            }
+                            let _ = db::update_youtube_sub_channel_id(&pool, sub.id, &resolved_id).await;
+                            channel_id = resolved_id.clone();
                         }
                         Err(e) => {
                             warn!("youtube_poller: failed to auto-resolve YouTube channel for sub id {} ('{}'): {e}", sub.id, channel_id);
@@ -287,12 +287,7 @@ pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
                     channel_id
                 );
 
-                let mut req = client.get(&url);
-                if let Some(ref etag) = sub.etag {
-                    req = req.header("If-None-Match", etag);
-                }
-
-                let resp = match req.send().await {
+                let resp = match client.get(&url).send().await {
                     Ok(r) => r,
                     Err(e) => {
                         warn!("youtube_poller: request error for {}: {e}", channel_id);
@@ -300,25 +295,52 @@ pub fn start_youtube_poller(pool: sqlx::SqlitePool, http: Arc<Http>) {
                     }
                 };
 
-                if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
-                    // 304 Not Modified -> no new videos, zero bandwidth consumed
+                if !resp.status().is_success() {
                     continue;
                 }
 
-                let new_etag = resp.headers().get("etag").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
                 let xml_text = match resp.text().await {
                     Ok(t) => t,
                     Err(_) => continue,
                 };
 
-                if let Some(video) = parse_youtube_atom_feed(&xml_text) {
-                    if last_vid.as_deref() != Some(&video.video_id) {
-                        info!("youtube_poller: new video found '{}' for {}", video.title, channel_id);
-                        let mut updated_sub = sub.clone();
-                        updated_sub.youtube_channel_id = channel_id.clone();
-                        let _ = db::update_youtube_sub_last_video(&pool, sub.id, &video.video_id, new_etag.as_deref()).await;
-                        let _ = send_youtube_notification(&http, &updated_sub, &video).await;
+                let entries = parse_all_youtube_entries(&xml_text);
+                if entries.is_empty() {
+                    continue;
+                }
+
+                let seen_count = db::get_seen_video_count(&pool, sub.guild_id, &channel_id).await.unwrap_or(0);
+
+                if seen_count == 0 {
+                    // Initial baseline: mark all current videos as seen so past videos and future edits to past videos NEVER ping!
+                    info!("youtube_poller: seeding initial seen videos for channel {}", channel_id);
+                    for entry in &entries {
+                        let _ = db::mark_youtube_video_seen(&pool, sub.guild_id, &channel_id, &entry.video_id).await;
                     }
+                    if let Some(newest) = entries.first() {
+                        let _ = db::update_youtube_sub_last_video(&pool, sub.id, &newest.video_id, None).await;
+                    }
+                    continue;
+                }
+
+                // Check entries from oldest to newest so notifications arrive in chronological order
+                let mut reversed = entries;
+                reversed.reverse();
+
+                for video in reversed {
+                    let already_seen = db::is_youtube_video_seen(&pool, sub.guild_id, &channel_id, &video.video_id).await.unwrap_or(false);
+                    if already_seen {
+                        // Already seen! Even if creator edits title, thumbnail, or description 100 times, NEVER PING!
+                        continue;
+                    }
+
+                    // Genuinely NEW video upload!
+                    info!("youtube_poller: new upload detected '{}' ({}) for {}", video.title, video.video_id, channel_id);
+                    let mut updated_sub = sub.clone();
+                    updated_sub.youtube_channel_id = channel_id.clone();
+                    let _ = send_youtube_notification(&http, &updated_sub, &video).await;
+                    let _ = db::mark_youtube_video_seen(&pool, sub.guild_id, &channel_id, &video.video_id).await;
+                    let _ = db::update_youtube_sub_last_video(&pool, sub.id, &video.video_id, None).await;
                 }
             }
 
@@ -368,5 +390,28 @@ mod tests {
 
         let html_meta = r#"<meta itemprop="identifier" content="UC9876543210987654321098">"#;
         assert_eq!(extract_uc_channel_id(html_meta), Some("UC9876543210987654321098".to_string()));
+    }
+
+    #[test]
+    fn test_parse_all_youtube_entries() {
+        let multi_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>yt:video:vid1</id>
+    <title>Video 1</title>
+    <yt:channelId>UC111</yt:channelId>
+    <published>2026-09-25T10:00:00+00:00</published>
+  </entry>
+  <entry>
+    <id>yt:video:vid2</id>
+    <title>Video 2</title>
+    <yt:channelId>UC111</yt:channelId>
+    <published>2026-09-26T10:00:00+00:00</published>
+  </entry>
+</feed>"#;
+        let entries = parse_all_youtube_entries(multi_xml);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].video_id, "vid1");
+        assert_eq!(entries[1].video_id, "vid2");
     }
 }

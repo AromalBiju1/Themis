@@ -140,15 +140,25 @@ pub async fn send_welcome_embed(
         }
     }
 
-    if let Some(ref img_url) = cfg.image_url {
+    let mut msg = CreateMessage::new().content(format!("<@{}>", user.id));
+
+    // Prefer cached permanent image bytes so Discord attachments never expire after 2-3 invites!
+    let local_banner = format!("banners/welcome_{}.png", guild_id.get());
+    let img_bytes = cfg.image_data.clone().or_else(|| {
+        std::fs::read(&local_banner).ok()
+    });
+
+    if let Some(bytes) = img_bytes {
+        let attachment = CreateAttachment::bytes(bytes, "welcome_banner.png");
+        embed = embed.image("attachment://welcome_banner.png");
+        msg = msg.add_file(attachment);
+    } else if let Some(ref img_url) = cfg.image_url {
         if !img_url.is_empty() {
             embed = embed.image(img_url);
         }
     }
 
-    let msg = CreateMessage::new()
-        .content(format!("<@{}>", user.id))
-        .embed(embed);
+    msg = msg.embed(embed);
 
     if let Err(e) = channel_id.send_message(&ctx.http, msg).await {
         tracing::error!("welcome: failed to send welcome message: {e}");
@@ -177,5 +187,11 @@ mod tests {
             sanitize_welcome_text("⚔️ Plain welcome message"),
             "⚔️ Plain welcome message"
         );
+    }
+
+    #[test]
+    fn test_create_attachment() {
+        let att = CreateAttachment::bytes(vec![0u8; 10], "welcome_banner.png");
+        let _msg = CreateMessage::new().add_file(att);
     }
 }

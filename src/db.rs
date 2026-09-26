@@ -69,6 +69,23 @@ pub async fn init_db(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS youtube_seen_videos (
+            guild_id           INTEGER NOT NULL,
+            youtube_channel_id TEXT NOT NULL,
+            video_id           TEXT NOT NULL,
+            created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (guild_id, youtube_channel_id, video_id)
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Migration: add image_data BLOB to welcome_config if not exists
+    let _ = sqlx::query("ALTER TABLE welcome_config ADD COLUMN image_data BLOB")
+        .execute(pool)
+        .await;
+
     Ok(())
 }
 
@@ -198,30 +215,37 @@ pub async fn toggle_goodbye(pool: &SqlitePool, guild_id: i64) -> anyhow::Result<
 
 #[derive(Debug, Clone)]
 pub struct WelcomeConfig {
-    pub guild_id: i64,
+    pub guild_id:   i64,
     pub channel_id: i64,
-    pub title: Option<String>,
-    pub message: String,
-    pub image_url: Option<String>,
-    pub enabled: bool,
+    pub title:      Option<String>,
+    pub message:    String,
+    pub image_url:  Option<String>,
+    pub image_data: Option<Vec<u8>>,
+    pub enabled:    bool,
 }
 
 pub async fn get_welcome_config(pool: &SqlitePool, guild_id: i64) -> anyhow::Result<Option<WelcomeConfig>> {
     let row = sqlx::query(
-        "SELECT guild_id, channel_id, title, message, image_url, enabled FROM welcome_config WHERE guild_id=?"
+        "SELECT guild_id, channel_id, title, message, image_url, image_data, enabled FROM welcome_config WHERE guild_id=?"
     )
     .bind(guild_id)
     .fetch_optional(pool)
     .await?;
 
     if let Some(r) = row {
+        let mut img_data: Option<Vec<u8>> = r.try_get("image_data").ok();
+        if img_data.is_none() {
+            img_data = tokio::fs::read(format!("banners/welcome_{guild_id}.png")).await.ok();
+        }
+
         Ok(Some(WelcomeConfig {
-            guild_id: r.get("guild_id"),
+            guild_id:   r.get("guild_id"),
             channel_id: r.get("channel_id"),
-            title: r.get("title"),
-            message: r.get("message"),
-            image_url: r.get("image_url"),
-            enabled: r.get::<i64, _>("enabled") != 0,
+            title:      r.get("title"),
+            message:    r.get("message"),
+            image_url:  r.get("image_url"),
+            image_data: img_data,
+            enabled:    r.get::<i64, _>("enabled") != 0,
         }))
     } else {
         Ok(None)
@@ -255,15 +279,27 @@ pub async fn set_welcome_text(pool: &SqlitePool, guild_id: i64, text: &str) -> a
     Ok(())
 }
 
-pub async fn set_welcome_image(pool: &SqlitePool, guild_id: i64, image_url: &str) -> anyhow::Result<()> {
+pub async fn set_welcome_image(
+    pool: &SqlitePool,
+    guild_id: i64,
+    image_url: &str,
+    image_data: Option<&[u8]>,
+) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT INTO welcome_config (guild_id, channel_id, message, image_url, enabled) VALUES (?, 0, '', ?, 1)
-         ON CONFLICT(guild_id) DO UPDATE SET image_url=EXCLUDED.image_url"
+        "INSERT INTO welcome_config (guild_id, channel_id, message, image_url, image_data, enabled) VALUES (?, 0, '', ?, ?, 1)
+         ON CONFLICT(guild_id) DO UPDATE SET image_url=EXCLUDED.image_url, image_data=EXCLUDED.image_data"
     )
     .bind(guild_id)
     .bind(image_url)
+    .bind(image_data)
     .execute(pool)
     .await?;
+
+    if let Some(bytes) = image_data {
+        let _ = tokio::fs::create_dir_all("banners").await;
+        let _ = tokio::fs::write(format!("banners/welcome_{guild_id}.png"), bytes).await;
+    }
+
     Ok(())
 }
 
@@ -295,7 +331,7 @@ pub async fn auto_seed_welcome_config(pool: &SqlitePool, guild_id: u64) -> anyho
         }
         if let Some(ref img) = img_env {
             if cfg.image_url.is_none() {
-                set_welcome_image(pool, guild_id as i64, img).await?;
+                set_welcome_image(pool, guild_id as i64, img, None).await?;
             }
         }
     } else {
@@ -544,3 +580,55 @@ pub async fn remove_warn(pool: &SqlitePool, warn_id: i64) -> anyhow::Result<()> 
         .await?;
     Ok(())
 }
+
+pub async fn is_youtube_video_seen(
+    pool: &SqlitePool,
+    guild_id: i64,
+    youtube_channel_id: &str,
+    video_id: &str,
+) -> anyhow::Result<bool> {
+    let row = sqlx::query(
+        "SELECT 1 FROM youtube_seen_videos WHERE guild_id=? AND youtube_channel_id=? AND video_id=?"
+    )
+    .bind(guild_id)
+    .bind(youtube_channel_id)
+    .bind(video_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.is_some())
+}
+
+pub async fn mark_youtube_video_seen(
+    pool: &SqlitePool,
+    guild_id: i64,
+    youtube_channel_id: &str,
+    video_id: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO youtube_seen_videos (guild_id, youtube_channel_id, video_id) VALUES (?, ?, ?)"
+    )
+    .bind(guild_id)
+    .bind(youtube_channel_id)
+    .bind(video_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_seen_video_count(
+    pool: &SqlitePool,
+    guild_id: i64,
+    youtube_channel_id: &str,
+) -> anyhow::Result<i64> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) as cnt FROM youtube_seen_videos WHERE guild_id=? AND youtube_channel_id=?"
+    )
+    .bind(guild_id)
+    .bind(youtube_channel_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row.get::<i64, _>("cnt"))
+}
+
